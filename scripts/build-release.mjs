@@ -194,9 +194,19 @@ if (withZip) {
   console.log('');
   log(`zip → ${path.relative(ROOT, zipPath)} (several minutes for ~800 MB)…`);
   if (fs.existsSync(zipPath)) fs.rmSync(zipPath);
-  const r = spawnSync('tar.exe', ['-a', '-c', '-f', zipPath, '-C', outRoot, NAME], { stdio: 'inherit' });
+  // Windows' own tar.exe is bsdtar and writes a real .zip; a Git-bash PATH may shadow it with GNU tar
+  // (which would silently emit a plain tar under a .zip name — caught by the PK check below).
+  const tarBin = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+  const r = spawnSync(tarBin, ['-a', '-c', '-f', zipPath, '-C', outRoot, NAME], { stdio: 'inherit' });
   if (r.error || r.status !== 0) bad(`zip failed: ${r.error?.message || `exit ${r.status}`}`);
-  else log(`✓ ${path.relative(ROOT, zipPath)}  (${mb(fs.statSync(zipPath).size)})`);
+  else {
+    const fd = fs.openSync(zipPath, 'r');
+    const magic = Buffer.alloc(2);
+    fs.readSync(fd, magic, 0, 2, 0);
+    fs.closeSync(fd);
+    if (magic.toString('latin1') !== 'PK') bad(`${path.basename(tarBin)} did not write a real zip (expected the PK header) — Windows' System32 tar.exe is bsdtar; a GNU tar in PATH cannot write zips`);
+    else log(`✓ ${path.relative(ROOT, zipPath)}  (${mb(fs.statSync(zipPath).size)})`);
+  }
 }
 
 console.log('');
