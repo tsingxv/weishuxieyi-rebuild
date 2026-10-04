@@ -10,6 +10,11 @@
 > 不想在终端里开服的房主，也可以用 `node scripts/build-server.mjs` 打一个**独立服务器 exe**：
 > 双击后弹出控制面板，直接列出可复制的局域网 / Radmin 地址、房间邀请链接、防火墙命令和在线状态。
 > 关掉面板窗口就等于停止开服（要后台常驻、开机自启仍然用下面的 `install-service-windows.ps1`）。
+>
+> 你是**维护者**、要给别人一个「解压就能玩」的包时：`node scripts/build-release.mjs --zip` 会把本机
+> 已有的依赖与素材组装成 `dist/Stronghold-Protocol-v0.1.0.zip`（约 800 MB，内含 `START-HERE.txt`）。
+> 全新 clone 因为素材与 `node_modules` 都是 git-ignored 而无法直接运行，所以这个整合包不能手工拼，
+> 也不要直接把工作目录压缩给别人。步骤与自检项见 [README 的方式三](../README.md) 与 [CLIENT.md](CLIENT.md)。
 
 ## 0. 资源需求
 

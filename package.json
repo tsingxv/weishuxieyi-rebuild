@@ -39,7 +39,8 @@
     "probe-client-ui": "node scripts/probe-client-ui.mjs",
     "build-server": "node scripts/build-server.mjs",
     "smoke-server": "node scripts/smoke-server.mjs",
-    "smoke-hall": "node scripts/smoke-hall.mjs"
+    "smoke-hall": "node scripts/smoke-hall.mjs",
+    "build-release": "node scripts/build-release.mjs"
   },
   "engines": {
     "node": ">=22"

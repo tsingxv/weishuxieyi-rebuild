@@ -6,6 +6,20 @@
 ![license](https://img.shields.io/badge/code%20license-GPL--3.0--or--later-blue)
 ![node](https://img.shields.io/badge/node-22%20%7C%2024-339933)
 
+## 基于上游项目开发
+
+> [!NOTE]
+> 本仓库是 **[sganggs/Stronghold-Protocol](https://github.com/sganggs/Stronghold-Protocol)**（明日方舟「卫戍协议：盟约」非官方同人复刻）的**继续开发版本**，在上游代码的基础上增加了以下功能：
+>
+> - **大厅**：同服在线博士列表、房间码分享、全服频道聊天、全服最近战绩与称号
+> - **本地持久档案与永久战绩**：记住代号、本机累计战绩与最常获得的称号
+> - **Windows 桌面客户端 exe**（`client/`）：素材与战斗逻辑内置，剪贴板识别房间码一键进房
+> - **独立服务器 exe**（`server-app/`）：控制面板直接查看/复制 IP、邀请链接与防火墙命令
+>
+> 上游作者与贡献者保留其代码的著作权。本项目的代码同样以 **GPL-3.0-or-later** 发布（GPL 要求保留上游的版权声明与许可，本仓库的 [LICENSE](LICENSE) 与 [NOTICE.md](NOTICE.md) 即为此目的）。如果这些改动对你有用，也请给上游项目一个 star。
+>
+> 若你只是想运行上游原版，请直接使用上游仓库或其 Release。
+
 ## 声明
 
 > [!IMPORTANT]
@@ -97,6 +111,29 @@ npm start          # 启动服务器：http://localhost:3000
 - **官方 3D 棋盘**需要从本机的《明日方舟》PC 客户端提取贴图（Windows 原生客户端、macOS 的 CrossOver 或 PlayCover）。`npm run setup` 检测到客户端时会询问是否提取（需要 Python 3.8+，依赖装在项目内的 `.venv-extract`，不影响系统）；之后可以用 `node tools/setup.mjs --local` 重新提取，或用 `--game "<…/StreamingAssets/AB/Windows>"` 指定路径。没有客户端时自动使用 2D 棋盘，其他功能不受影响。
 - 素材下载优先使用 GitHub，失败时自动改用 jsDelivr 镜像。
 - `npm run doctor`（即 `node tools/doctor.mjs`）可以随时诊断：Node 版本、素材是否完整、端口占用、局域网地址和防火墙。
+
+### 方式三：打一个 Release 整合包（维护者）
+
+上面「方式一」的整合包不是手工拼的：`node_modules/`、`public/assets/`、`public/fonts/`、`public/vendor/` 都是 git-ignored 的（第三方构建产物或鹰角/悠星的素材，见 [NOTICE.md](NOTICE.md)），所以**全新 clone 不能直接跑**。用打包脚本把本机已有的这些目录组装成可直接上传的 zip：
+
+```bash
+node scripts/build-release.mjs --zip
+# → dist/Stronghold-Protocol-v0.1.0/            （约 810 MB，13000+ 个文件）
+# → dist/Stronghold-Protocol-v0.1.0.zip         （上传到 GitHub Releases 的那一个）
+```
+
+脚本**不下载任何东西**，只复制本机现有内容，并在结束前自检（缺 `public/assets`、`public/vendor` 为空、`node_modules` 不完整等都会报错并返回非 0，避免发出一个跑不起来的包）。它还会写入 `START-HERE.txt`（解压后第一眼看到的说明，含 Node 安装、启动方式与版权声明）。
+
+| 选项 | 说明 |
+|---|---|
+| `--zip` | 额外生成可上传的 zip（`tar.exe`，约 800 MB，需要几分钟） |
+| `--no-node-modules` | 体积小很多，但用户要先自己跑一次 `npm ci`（`START-HERE.txt` 会写明） |
+| `--out=<dir>` | 输出根目录，默认 `dist/` |
+| `--name=<dir>` | 产物文件夹名，默认 `Stronghold-Protocol-v<版本>` |
+
+上传前建议核对：解压后双击 `scripts\start-windows.bat` 应能直接开玩（不必再联网）；`LICENSE`、`NOTICE.md`、`THIRD-PARTY-NOTICES.md` 必须在包内（GPL 与素材声明都要求随再分发保留）。
+
+桌面客户端 exe 与独立服务器 exe 是**另外两个独立产物**（`node scripts/build-client.mjs` / `node scripts/build-server.mjs`），不放进这个整合包；三者的关系见 [docs/CLIENT.md](docs/CLIENT.md)。
 
 ### 系统要求
 
