@@ -1,0 +1,491 @@
+// server/sim/professions.js — default combat behaviour per profession / subProfessionId (DESIGN §5.6 traits).
+//
+// A *profile* describes how a unit attacks. It is resolved once per unit:
+//   PROFESSION_DEFAULTS[profession] → SUB[subProfessionId] → trait-text / trait-blackboard tunables (TUNE[sub]) →
+//   data fields (dmgType/attackKind/projectile/canHitFly/targetPriority from data/chess.json) → kit.trait overrides.
+// Profile fields:
+//   attack 'melee'|'ranged'   dmgType 'phys'|'arts'|'true'|'heal'|'none'
+//   projectile 'none'|'arrow'|'bolt'|'bomb'|'lob'|'orb'|'drone'|'boomerang' ('boomerang': out to the target and back to
+//                             the thrower, ai.js throwBoomerang)        boomerang bool (回环射手: keeps 'boomerang')
+//   canHitFly bool            maxTargets n (≥1)          hitAllBlocked bool (attack every blocked enemy)
+//   allInRange bool           splashRadius tiles         splashScale (× damage for splash victims)
+//   splashOthersOnly bool     groundOnly bool            hits n (damage instances per attack)
+//   chain {count, falloff, radius, sluggish}              heal {mode:'single'|'multi'|'chain', count, falloff, farMul, elementHealRatio}
+//   priority 'fly'|'lowDef'|'ranged'|'lowestHp'|'highestHp'|'nearest'|'farthest'|'notBurst'|null
+//   noAttack bool (never attacks)   noAttackUnlessSkill bool (attacks only while its skill is active)
+//   noHeal bool (cannot be healed by others)   blockFly bool   onHitStatus {key, duration, value}
+//   dmgMul(battle, unit, target) → number      afterHit(battle, unit, target, {dealt,x,y})
+//   canAttack(battle, unit) → bool             afterAttack(battle, unit, targets)
+//   hitsFn(battle, unit) → n                   install(battle, unit) — per-unit hooks, called once at setup
+//   tb — the unit's trait blackboard (data `trait.bb`), used for tunables (module upgrades included on elites)
+// Behaviour per subprofession is documented in docs/SIM.md §Professions. Front / side tests use the unit's direction
+// (`dir`, sim/dir.js): offsets are compared in its facing-RIGHT frame.
+
+import { toLocal, frontOf } from './dir.js';
+import { absoluteRangeKeys } from './targeting.js';
+import { bodyInKeys, bodyKeys, bodyOnTile } from './body.js';
+import { COLS } from './constants.js';
+
+const P = (o) => Object.freeze(o);
+const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+export const PROFESSION_DEFAULTS = Object.freeze({
+  SNIPER: P({ attack: 'ranged', dmgType: 'phys', projectile: 'arrow', canHitFly: true }),
+  CASTER: P({ attack: 'ranged', dmgType: 'arts', projectile: 'bolt', canHitFly: true }),
+  MEDIC: P({ attack: 'ranged', dmgType: 'heal', projectile: 'orb', canHitFly: true, heal: { mode: 'single' } }),
+  SUPPORT: P({ attack: 'ranged', dmgType: 'arts', projectile: 'bolt', canHitFly: true }),
+  TANK: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+  WARRIOR: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+  PIONEER: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+  SPECIAL: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+  TOKEN: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+});
+
+// --------------------------------------------------------------------------------------------------------------
+// install helpers (per-unit hooks). All use engine helpers only; tunables come from unit.profile.
+
+const installSelfHealOnHit = (capByBlock) => (battle, unit) => {
+  battle.on('attack', (ctx) => {
+    if (ctx.attacker !== unit || !unit.alive) return;
+    let n = ctx.targets.length;
+    if (capByBlock) n = Math.min(n, Math.max(1, unit.s.blockCnt));
+    if (n > 0) battle.heal(unit, unit, (unit.profile.selfHeal ?? 50) * n, { self: true });
+  }, { owner: unit, priority: -10 });
+};
+
+const installHpDrain = (battle, unit) => {
+  battle.every(1, () => {
+    if (!unit.alive || !unit.deployed) return;
+    const loss = unit.s.maxHp * (unit.profile.hpDrain ?? 0.03);
+    // non-lethal: the drain never knocks the operator out on its own
+    if (unit.hp - loss < 1) unit.hp = Math.min(unit.hp, 1);
+    else battle.loseHp(unit, loss, { source: unit, silent: true });
+  }, { owner: unit });
+};
+
+const installMerchant = (battle, unit) => {
+  const iv = unit.profile.merchantInterval ?? 3;
+  const cost = unit.profile.merchantCost ?? 3;
+  battle.every(iv, () => {
+    if (!unit.alive || !unit.deployed) return;
+    const pl = battle.getPlayer(unit.ownerId);
+    if (!pl) return;
+    // `merchantPay` { unit, cost, cancel }: content may change the payment or waive it (cancel)
+    const ctx = battle.hasHook('merchantPay') ? battle.emit('merchantPay', { unit, cost, cancel: false }) : null;
+    if (!unit.alive || !unit.deployed || (ctx && ctx.cancel)) return;
+    const c = ctx && Number.isFinite(ctx.cost) ? Math.max(0, ctx.cost) : cost;
+    if (pl.dp >= c) battle.addDp(unit.ownerId, -c);
+    else battle.retreat(unit, { reason: 'merchant' });
+  }, { owner: unit });
+};
+
+const installCharger = (battle, unit) => {
+  battle.on('kill', (ctx) => {
+    if (ctx.killer === unit && ctx.victim.side === 'enemy') battle.addDp(unit.ownerId, unit.profile.dpOnKill ?? 1);
+  }, { owner: unit });
+};
+
+const installDollkeeper = (battle, unit) => {
+  // the substitute's HP comes from the unit's own substitute token (风丸 纸偶) for its selected skill / module
+  // (DESIGN §16); a dollkeeper without one (归溟幽灵鲨) must not borrow another operator's token stats → 50 % of its
+  // own max HP
+  const dollHp = () => {
+    const tokId = (unit.def.tokens || []).map((t) => (typeof t === 'string' ? t : t?.tokenId)).find((t) => t && /shadow|doll/.test(t));
+    const tok = tokId ? battle.data.getToken?.(tokId, unit.defId, unit.def?.loadout ?? null) : null;
+    return tok && tok.stats.maxHp > 0 ? tok.stats.maxHp : unit.base.maxHp * 0.5;
+  };
+  battle.on('fatal', (ctx) => {
+    if (ctx.unit !== unit || ctx.prevented || unit.trait.doll) return;
+    ctx.prevented = true;
+    unit.trait.doll = true;
+    battle.addBuff(unit, {
+      key: 'trait:substitute', duration: unit.profile.dollDuration ?? 20, visible: true,
+      mods: { blockCnt: -99, hpMul: Math.max(0.05, dollHp() / Math.max(1, unit.base.maxHp)) },
+      onExpire: () => {
+        unit.trait.doll = false;
+        if (unit.alive) { unit.markDirty(); unit.hp = unit.s.maxHp; battle.fx('swap', { x: unit.x, y: unit.y, id: unit.id }); }
+      },
+    });
+    battle.releaseBlocked(unit);
+    unit.markDirty();
+    unit.hp = unit.s.maxHp;
+    battle.fx('substitute', { x: unit.x, y: unit.y, id: unit.id });
+  }, { owner: unit, priority: -100 });
+  battle.on('death', (ctx) => { if (ctx.unit === unit) unit.trait.doll = false; }, { owner: unit });
+};
+
+const installLibrator = (battle, unit) => {
+  // ATK ramps linearly to +rampMax (bb atk, default +200 %) over rampTime s (bb max_stack_cnt, default 40) while
+  // the skill is inactive; blocks nothing while inactive; everything resets when the skill ends.
+  const rampMax = unit.profile.rampMax ?? 2;
+  const rampTime = unit.profile.rampTime ?? 40;
+  const rampInit = Math.min(rampMax, unit.profile.rampInit ?? 0); // golden module: "部署后获得+100%加成" (init_atk)
+  const applyBlock = () => {
+    if (unit.skill?.active) battle.removeBuff(unit, 'trait:libratorBlock');
+    else { battle.addBuff(unit, { key: 'trait:libratorBlock', mods: { blockCnt: -99 } }); battle.releaseBlocked(unit); }
+  };
+  unit.trait.ramp = 0;
+  battle.every(1, () => {
+    if (!unit.alive || !unit.deployed || unit.skill?.active) return;
+    unit.trait.ramp = Math.min(rampMax, unit.trait.ramp + rampMax / rampTime);
+    battle.addBuff(unit, { key: 'trait:libratorRamp', mods: { atkPct: unit.trait.ramp } });
+  }, { owner: unit });
+  const applyRamp = () => {
+    if (unit.trait.ramp > 0) battle.addBuff(unit, { key: 'trait:libratorRamp', mods: { atkPct: unit.trait.ramp } });
+    else battle.removeBuff(unit, 'trait:libratorRamp');
+  };
+  battle.on('deploy', (ctx) => { if (ctx.unit === unit) { unit.trait.ramp = rampInit; applyRamp(); applyBlock(); } }, { owner: unit });
+  battle.on('skillStart', (ctx) => { if (ctx.unit === unit) applyBlock(); }, { owner: unit });
+  battle.on('skillEnd', (ctx) => {
+    if (ctx.unit !== unit) return;
+    unit.trait.ramp = 0;
+    applyRamp();
+    applyBlock();
+  }, { owner: unit });
+};
+
+const installPhalanx = (battle, unit) => {
+  const apply = () => {
+    if (unit.skill?.active) battle.removeBuff(unit, 'trait:phalanxGuard');
+    else battle.addBuff(unit, { key: 'trait:phalanxGuard', mods: { defPct: unit.profile.guardDef ?? 2, resFlat: unit.profile.guardRes ?? 20 } });
+  };
+  battle.on('deploy', (ctx) => { if (ctx.unit === unit) apply(); }, { owner: unit });
+  battle.on('skillStart', (ctx) => { if (ctx.unit === unit) apply(); }, { owner: unit });
+  battle.on('skillEnd', (ctx) => { if (ctx.unit === unit) apply(); }, { owner: unit });
+};
+
+const installBearer = (battle, unit) => {
+  battle.on('skillStart', (ctx) => {
+    if (ctx.unit === unit) { battle.addBuff(unit, { key: 'trait:bearer', mods: { blockCnt: -99 } }); battle.releaseBlocked(unit); }
+  }, { owner: unit });
+  battle.on('skillEnd', (ctx) => { if (ctx.unit === unit) battle.removeBuff(unit, 'trait:bearer'); }, { owner: unit });
+};
+
+const installStalker = (battle, unit) => {
+  const p = unit.profile.dodge ?? 0.5;
+  battle.addBuff(unit, { key: 'trait:stalker', mods: { dodgePhys: p, dodgeArts: p, taunt: -1 }, persist: true, allowDead: true });
+};
+
+const installHunter = (battle, unit) => {
+  const max = unit.profile.ammoMax ?? 8;
+  unit.trait.ammo = max;
+  unit.trait.reloadAcc = 0;
+  battle.on('tick', (ctx) => {
+    if (!unit.alive || !unit.deployed) return;
+    if (battle.time - unit.lastAttackAt >= 1 && unit.trait.ammo < max) {
+      unit.trait.reloadAcc += ctx.dt;
+      if (unit.trait.reloadAcc >= 1) { unit.trait.reloadAcc -= 1; unit.trait.ammo++; }
+    } else unit.trait.reloadAcc = 0;
+  }, { owner: unit });
+  battle.on('deploy', (ctx) => { if (ctx.unit === unit) unit.trait.ammo = max; }, { owner: unit });
+};
+
+/**
+ * 回环射手 (loopshooter) trait "持有回旋投射物时才能够攻击（投射物需要时间回收）": its projectile is a boomerang that
+ * flies to the target, hits on arrival and flies back to the thrower (ai.js throwBoomerang, speeds in constants.js);
+ * the thrower attacks only while it holds its boomerang — every one it threw must be caught first (PRTS 跃跃 S2 note
+ * "必须回收全部回旋投掷物才可以进行下一次攻击") — and once its attack cooldown is ready, so the real interval is the longer
+ * of the two ("实际攻击间隔会受投掷物的实际飞行时间影响产生浮动"). A (re)deployed thrower holds a fresh one.
+ */
+const installLoopshooter = (battle, unit) => {
+  unit.trait.boomerangsOut = 0;
+  battle.on('deploy', (ctx) => { if (ctx.unit === unit) unit.trait.boomerangsOut = 0; }, { owner: unit });
+};
+
+const installTactician = (battle, unit) => {
+  const spawn = () => {
+    if (!unit.alive || !unit.deployed) return;
+    if (unit.trait.reinforcement && unit.trait.reinforcement.alive) return;
+    const tile = battle.findTacticalPoint(unit);
+    if (!tile) return;
+    unit.trait.reinforcement = battle.spawnToken(unit, 'token_tactician_reinforce', tile[0], tile[1], {
+      def: {
+        name: '援军', stats: {
+          maxHp: unit.base.maxHp * 0.7, atk: unit.base.atk * 0.5, def: unit.base.def, magicResistance: 0,
+          blockCnt: 1, baseAttackTime: 1.2, attackSpeed: 100, respawnTime: 999, cost: 0,
+        }, rangeGrid: [[0, 0]], dmgType: 'phys', attackKind: 'melee', profession: 'TOKEN',
+      },
+    });
+  };
+  battle.on('deploy', (ctx) => { if (ctx.unit === unit) spawn(); }, { owner: unit });
+};
+
+const installFunnel = (battle, unit) => {
+  unit.trait.funnelTarget = null;
+  unit.trait.funnelScale = unit.profile.funnel?.init ?? 0.2;
+};
+
+const installMystic = (battle, unit) => {
+  unit.trait.stored = 0;
+  const max = unit.profile.storeMax ?? 3;
+  battle.on('tick', () => {
+    if (!unit.canAct) return;
+    if (unit.atkCd <= 0 && !unit.trait.hadTarget && unit.trait.stored < max) {
+      unit.trait.storeAcc = (unit.trait.storeAcc ?? 0) + battle.dt;
+      if (unit.trait.storeAcc >= unit.s.interval) { unit.trait.storeAcc = 0; unit.trait.stored++; }
+    }
+  }, { owner: unit });
+};
+
+const installBard = (battle, unit) => {
+  battle.every(1, () => {
+    if (!unit.canAct) return;
+    const amount = unit.s.atk * (unit.profile.auraRatio ?? 0.1);
+    for (const ally of battle.alliesInGrid(unit)) {
+      if (ally.hp < ally.s.maxHp) battle.heal(unit, ally, amount, { aura: true });
+    }
+  }, { owner: unit });
+};
+
+const installSkywalker = (battle, unit) => {
+  battle.addBuff(unit, { key: 'trait:skywalker', flags: { blockFly: true }, persist: true, allowDead: true });
+};
+
+/** Target's tile offset from the unit in the unit's facing-RIGHT frame ([dRow, dCol], sim/dir.js toLocal). */
+/** The target (its body: a huge enemy's every tile — body.js) on a tile of `grid` around the unit (its facing frame). */
+const inTraitGrid = (unit, target, grid) => bodyInKeys(target, absoluteRangeKeys(grid, unit.tileR, unit.tileC, unit.dir, 0));
+
+/**
+ * 'reaperrange' default front test: the target stands on the unit's own line, at or ahead of it along its facing — a
+ * huge enemy when any tile of its body does (body.js).
+ */
+const onFrontLine = (unit, target) => {
+  const [fr, fc] = unit.fwd;
+  const lateral = (r, c) => toLocal(r - unit.tileR, c - unit.tileC, unit.dir)[0];
+  if (!target.hitArea) {
+    return lateral(Math.round(target.y), Math.round(target.x)) === 0 && (target.x - unit.x) * fc + (target.y - unit.y) * fr >= 0;
+  }
+  for (const k of bodyKeys(target)) {
+    const r = Math.floor(k / COLS), c = k % COLS;
+    if (lateral(r, c) === 0 && (c - unit.tileC) * fc + (r - unit.tileR) * fr >= 0) return true;
+  }
+  return false;
+};
+
+// --------------------------------------------------------------------------------------------------------------
+// subprofession table
+
+export const SUB = Object.freeze({
+  // --- SNIPER
+  fastshot: P({ priority: 'fly', dmgMul: (b, u, t) => (t.isFlying ? (u.profile.flyScale ?? 1) : 1) }),
+  closerange: P({}),
+  longrange: P({ priority: 'lowDef' }),
+  aoesniper: P({ splashRadius: 1.1, projectile: 'bomb' }),
+  bombarder: P({ splashRadius: 1.0, projectile: 'bomb', groundOnly: true, canHitFly: false,
+    afterHit: (battle, unit, target, info) => {
+      // aftershocks: (times − 1) extra hits at append_atk_scale × ATK (default one hit at 50 %)
+      const n = Math.max(1, (unit.profile.shockTimes ?? 2) - 1);
+      for (let i = 1; i <= n; i++) {
+        battle.after(0.3 * i, () => {
+          for (const e of battle.enemiesInRadius(info.x, info.y, unit.profile.splashRadius || 1, true)) { // splash: 中点判定
+            if (e.isFlying) continue;
+            battle.dealDamage(unit, e, { amount: unit.s.atk * (unit.profile.shockScale ?? 0.5), type: 'phys', isSplash: true, tags: ['aftershock'] });
+          }
+        });
+      }
+    } }),
+  hunter: P({ install: installHunter,
+    canAttack: (battle, unit) => (unit.trait.ammo ?? 8) > 0,
+    dmgMul: (b, u) => u.profile.ammoScale ?? 1.2,
+    afterAttack: (battle, unit) => { unit.trait.ammo = Math.max(0, (unit.trait.ammo ?? 8) - 1); } }),
+  loopshooter: P({ projectile: 'boomerang', boomerang: true, install: installLoopshooter,
+    canAttack: (battle, unit) => !(unit.trait.boomerangsOut > 0) }),
+  reaperrange: P({ allInRange: true,
+    dmgMul: (battle, unit, target) => {
+      const grid = unit.profile.frontGrid;
+      const front = grid ? inTraitGrid(unit, target, grid) : onFrontLine(unit, target);
+      return front ? (unit.profile.frontScale ?? 1.5) : 1;
+    } }),
+  // --- CASTER
+  splashcaster: P({ splashRadius: 1.1 }),
+  blastcaster: P({ splashRadius: 1.1, projectile: 'bomb' }),
+  chain: P({ chain: { count: 3, falloff: 0.15, radius: 1.8, sluggish: 0.5 } }),
+  funnel: P({ projectile: 'drone', install: installFunnel,
+    dmgMul: (battle, unit, target) => {
+      const f = unit.profile.funnel || { init: 0.2, delta: 0.15, max: 1.1 };
+      if (unit.trait.funnelTarget === target.id) unit.trait.funnelScale = Math.min(f.max, (unit.trait.funnelScale ?? f.init) + f.delta);
+      else { unit.trait.funnelTarget = target.id; unit.trait.funnelScale = f.init; }
+      return unit.trait.funnelScale;
+    } }),
+  mystic: P({ install: installMystic,
+    hitsFn: (battle, unit) => { const n = 1 + (unit.trait.stored ?? 0); unit.trait.stored = 0; return n; } }),
+  phalanx: P({ noAttackUnlessSkill: true, splashRadius: 1.1, install: installPhalanx }),
+  primcaster: P({}),
+  corecaster: P({}),
+  // --- MEDIC
+  physician: P({ heal: { mode: 'single' } }),
+  ringhealer: P({ heal: { mode: 'multi', count: 3 } }),
+  chainhealer: P({ heal: { mode: 'chain', count: 3, falloff: 0.25 } }),
+  healer: P({ heal: { mode: 'single', farMul: 0.8, nearDist: 2 } }),
+  wandermedic: P({ heal: { mode: 'single', elementHealRatio: 0.5 } }),
+  incantationmedic: P({ dmgType: 'arts', projectile: 'bolt', heal: null,
+    afterHit: (battle, unit, target, info) => {
+      if (!(info.dealt > 0)) return;
+      const ally = battle.lowestHpAllyInRange(unit);
+      if (ally) battle.heal(unit, ally, info.dealt * (unit.profile.healRatio ?? 0.5), { tags: ['incantation'] });
+    } }),
+  // --- SUPPORT
+  slower: P({ onHitStatus: { key: 'sluggish', duration: 0.8 } }),
+  underminer: P({}),
+  bard: P({ noAttack: true, dmgType: 'heal', heal: null, install: installBard }),
+  ritualist: P({}),
+  craftsman: P({ attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false }),
+  summoner: P({}),
+  // --- TANK
+  protector: P({}),
+  guardian: P({}),
+  shotprotector: P({ attack: 'ranged', canHitFly: true, projectile: 'arrow' }),
+  primprotector: P({}),
+  unyield: P({ noHeal: true }),
+  duelist: P({}),
+  fortress: P({ fortress: true, splashRadius: 1.0, projectile: 'bomb' }),
+  // --- WARRIOR
+  centurion: P({ hitAllBlocked: true }),
+  crusher: P({ hitAllBlocked: true }),
+  fearless: P({}),
+  fighter: P({}),
+  hammer: P({ splashRadius: 1.0, splashScale: 0.5, splashOthersOnly: true }),
+  instructor: P({ dmgMul: (battle, unit, target) => (target.blockedBy === unit ? 1 : (unit.profile.unblockedScale ?? 1.2)) }),
+  librator: P({ noAttackUnlessSkill: true, install: installLibrator }),
+  lord: P({ canHitFly: true,
+    dmgMul: (battle, unit, target) => {
+      if (target.blockedBy === unit) return 1;
+      const [fr, fc] = frontOf(unit.tileR, unit.tileC, unit.dir);
+      return bodyOnTile(target, unit.tileR, unit.tileC) || bodyOnTile(target, fr, fc) ? 1 : (unit.profile.rangedScale ?? 0.8);
+    } }),
+  musha: P({ noHeal: true, install: installSelfHealOnHit(false) }),
+  reaper: P({ noHeal: true, allInRange: true, install: installSelfHealOnHit(true) }),
+  sword: P({ hits: 2 }),
+  artsfghter: P({ dmgType: 'arts' }),
+  swordmaster: P({ hits: 2 }),
+  // --- PIONEER
+  pioneer: P({}),
+  charger: P({ install: installCharger }),
+  tactician: P({ install: installTactician,
+    dmgMul: (battle, unit, target) => (unit.trait.reinforcement && target.blockedBy === unit.trait.reinforcement ? (unit.profile.reinforceScale ?? 1.5) : 1) }),
+  agent: P({ canHitFly: true }),
+  counsellor: P({}),
+  bearer: P({ install: installBearer }),
+  // --- SPECIAL
+  alchemist: P({ attack: 'ranged', canHitFly: true, projectile: 'lob' }),
+  dollkeeper: P({ install: installDollkeeper }),
+  executor: P({}),
+  geek: P({ install: installHpDrain }),
+  hookmaster: P({ canHitFly: true }),
+  merchant: P({ install: installMerchant }),
+  pusher: P({ hitAllBlocked: true }),
+  skywalker: P({ canHitFly: true, blockFly: true, install: installSkywalker }),
+  stalker: P({ allInRange: true, install: installStalker }),
+  traper: P({ attack: 'ranged', canHitFly: false, projectile: 'none' }),
+});
+
+/**
+ * Trait tunables per subprofession, read from the trait text and the trait blackboard (`def.traitBb`, data
+ * `trait.bb`; elites include their module upgrade). Returns profile overrides.
+ */
+const TUNE = {
+  fastshot: (tb) => ({ flyScale: num(tb.atk_scale, 1) }),
+  bombarder: (tb) => ({ shockScale: num(tb['attack@append_atk_scale'], 0.5), shockTimes: num(tb['attack@times'], 2) }),
+  hunter: (tb) => ({ ammoMax: num(tb.value, 8), ammoScale: num(tb.atk_scale, 1.2) }),
+  reaperrange: (tb, def) => ({ frontScale: num(tb.atk_scale, 1.5), frontGrid: def.raw?.trait?.rangeGrid ?? null }),
+  funnel: (tb) => ({ funnel: { init: num(tb.init_atk_scale, 0.2), delta: num(tb.delta_atk_scale, 0.15), max: num(tb.max_atk_scale, 1.1) } }),
+  mystic: (tb) => ({ storeMax: num(tb.times, 3) }),
+  phalanx: (tb) => ({ guardDef: num(tb.def, 2), guardRes: num(tb.magic_resistance, 20) }),
+  healer: (tb, def, p) => ({ heal: { ...p.heal, farMul: num(tb.heal_scale, 0.8) } }),
+  wandermedic: (tb, def, p) => ({ heal: { ...p.heal, elementHealRatio: num(tb.ep_heal_ratio, 0.5) } }),
+  incantationmedic: (tb) => ({ healRatio: num(tb.scale, 0.5) }),
+  chainhealer: (tb, def, p) => {
+    const o = { ...p.heal };
+    const m = String(def.trait || '').match(/在(\d+)个友方单位间跳跃/);
+    if (m) o.count = +m[1];
+    const f = String(def.trait || '').match(/治疗量降低(\d+)%/);
+    if (f) o.falloff = +f[1] / 100;
+    if (tb['attack@chain.max_target'] != null) o.count = num(tb['attack@chain.max_target'], o.count);
+    if (tb['attack@chain.atk_scale'] != null) o.falloff = 1 - num(tb['attack@chain.atk_scale'], 1 - o.falloff);
+    return { heal: o };
+  },
+  ringhealer: (tb, def, p) => ({ heal: { ...p.heal, count: /同时恢复三个|同时恢复3个/.test(String(def.trait || '')) ? 3 : (p.heal.count ?? 3) } }),
+  chain: (tb, def, p) => {
+    const o = { ...p.chain };
+    const m = String(def.trait || '').match(/在(\d+)个敌人间跳跃/);
+    if (m) o.count = +m[1];
+    const f = String(def.trait || '').match(/伤害降低(\d+)%/);
+    if (f) o.falloff = +f[1] / 100;
+    if (tb['attack@max_target'] != null) o.count = num(tb['attack@max_target'], o.count);
+    if (tb['attack@sluggish'] != null) o.sluggish = num(tb['attack@sluggish'], o.sluggish);
+    if (tb['attack@chain.atk_scale'] != null) o.falloff = 1 - num(tb['attack@chain.atk_scale'], 1 - o.falloff);
+    return { chain: o };
+  },
+  slower: (tb) => ({ onHitStatus: { key: 'sluggish', duration: num(tb.sluggish, 0.8) } }),
+  underminer: (tb) => (tb.atk != null && tb.duration != null ? { onHitStatus: { key: 'weaken', duration: num(tb.duration, 2), value: Math.abs(num(tb.atk, 0.1)) } } : {}),
+  bard: (tb) => ({ auraRatio: num(tb['attack@atk_to_hp_recovery_ratio'], 0.1) }),
+  hammer: (tb) => ({ splashScale: num(tb['attack@atk_scale_2'], 0.5), splashRadius: num(tb['attack@ability_range_radius'], 1) }),
+  instructor: (tb) => ({ unblockedScale: num(tb.atk_scale, 1.2) }),
+  librator: (tb) => ({ rampMax: num(tb.atk, 2), rampTime: num(tb.max_stack_cnt, 40), rampInit: num(tb.init_atk, 0) }),
+  lord: (tb) => ({ rangedScale: num(tb.atk_scale, 0.8) }),
+  musha: (tb) => ({ selfHeal: num(tb.value, 50) }),
+  reaper: (tb) => ({ selfHeal: num(tb.value, 50) }),
+  charger: (tb) => ({ dpOnKill: num(tb.cost, 1) }),
+  tactician: (tb) => ({ reinforceScale: num(tb.atk_scale, 1.5) }),
+  dollkeeper: (tb) => ({ dollDuration: num(tb.duration, 20) }),
+  geek: (tb) => ({ hpDrain: num(tb.hp_ratio, 0.03) }),
+  merchant: (tb) => ({ merchantInterval: num(tb.interval, 3), merchantCost: Math.abs(num(tb.cost, -3)) }),
+  stalker: (tb) => ({ dodge: num(tb.prob, 0.5) }),
+};
+
+const PRIORITY_ALIASES = {
+  FLY_FIRST: 'fly', fly: 'fly', LOW_DEF: 'lowDef', lowDef: 'lowDef', lowestDef: 'lowDef', RANGED: 'ranged', ranged: 'ranged',
+  lowestHp: 'lowestHp', highestHp: 'highestHp', nearest: 'nearest', farthest: 'farthest',
+};
+
+/**
+ * Resolve the attack profile of a unit def. `kitTrait` (optional) overrides everything.
+ * @returns {object} mutable profile
+ */
+export function resolveProfile(def, kitTrait = null) {
+  const prof = PROFESSION_DEFAULTS[def.profession] || PROFESSION_DEFAULTS.WARRIOR;
+  const sub = (def.subProf && SUB[def.subProf]) || {};
+  const tb = def.traitBb || {};
+  const p = {
+    sub: def.subProf || null,
+    attack: 'melee', dmgType: 'phys', projectile: 'none', canHitFly: false, maxTargets: 1,
+    hitAllBlocked: false, allInRange: false, splashRadius: 0, splashScale: 1, splashOthersOnly: false,
+    groundOnly: false, hits: 1, chain: null, heal: null, priority: null, noAttack: false,
+    noAttackUnlessSkill: false, noHeal: false, blockFly: false,
+    ...prof, ...sub, tb,
+  };
+  const tune = def.subProf && TUNE[def.subProf];
+  if (tune) Object.assign(p, tune(tb, def, p));
+  // data-provided fields (build-data parsed them from trait text) take precedence over table defaults,
+  // except for 'none' (no normal attack: phalanx/librator/bard) and 'heal' kinds whose attack shape stays table-defined.
+  const ak = def.attackKind ? String(def.attackKind).toLowerCase() : null;
+  if (def.dmgType) p.dmgType = def.dmgType;
+  if (ak === 'ranged' || ak === 'melee') {
+    p.attack = ak;
+    if (def.projectile) p.projectile = def.projectile;
+    if (def.canHitFly != null) p.canHitFly = !!def.canHitFly;
+    else p.canHitFly = p.attack === 'ranged' || p.canHitFly;
+  } else if (ak === 'heal') {
+    p.attack = 'ranged';
+    p.dmgType = 'heal';
+  } else if (ak === 'none') {
+    if (!p.noAttack && !p.noAttackUnlessSkill) p.noAttackUnlessSkill = true;
+  }
+  if (def.targetPriority) p.priority = PRIORITY_ALIASES[def.targetPriority] ?? def.targetPriority;
+  if (def.splashRadius != null && def.splashRadius > 0) p.splashRadius = def.splashRadius;
+  // a boomerang thrower (回环射手) always throws its boomerang: the data's generic ranged projectile ('arrow', a
+  // build-data default) would turn the out-and-back flight into a plain shot
+  if (p.boomerang && p.attack === 'ranged') p.projectile = 'boomerang';
+  if (def.type === 'token') {
+    if (p.dmgType === 'heal') p.heal = p.heal || { mode: 'single' };
+    if (def.stats.atk <= 0) p.noAttack = true;
+  }
+  if (p.dmgType === 'heal' && !p.heal && !p.noAttack) p.heal = { mode: 'single' };
+  if (p.dmgType !== 'heal' && p.heal) p.heal = null;
+  if (p.dmgType === 'none') p.noAttack = true;
+  if (kitTrait) Object.assign(p, kitTrait);
+  return p;
+}
+
+/** Every subProfessionId with a specific behaviour (used by tests to check coverage). */
+export const KNOWN_SUBPROFESSIONS = Object.freeze(Object.keys(SUB));

@@ -1,0 +1,260 @@
+/* ==========================================================================================
+   screens/hall.css — 大厅 (server-wide hall): online roster + room codes, open 同盟,
+   the all-server chat channel and the recent results ring with its 评语 (server/hall.js).
+   All sizes are rem (1rem = 100 design px at 1920×1080, css/theme.css).
+   ========================================================================================== */
+
+/* Three columns: who is online (narrow, it is a list of names) · open rooms + chat (the working column) ·
+   recent results. The chat log owns the leftover height, so the page itself rarely scrolls. */
+.hall-body {
+  display: grid;
+  grid-template-columns: minmax(0, .95fr) minmax(0, 1.5fr) minmax(0, 1.15fr);
+  gap: .4rem;
+  width: 100%;
+  max-width: 19.2rem;
+  margin: 0 auto;
+  padding: .34rem .6rem .4rem;
+  align-content: start;
+  align-items: start;
+}
+.hall-col { display: flex; flex-direction: column; min-width: 0; }
+.hall-col--main { height: 100%; }
+.hall-panel { min-width: 0; }
+.hall-panel--flush .panel__body { padding: 0; }
+
+.hall-empty {
+  margin: 0;
+  padding: .3rem .22rem;
+  font-size: .16rem;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* ---- room codes ---------------------------------------------------------------------------- */
+/* A code is the one thing in the hall people copy around, so it is always a button: click = copy. */
+.hall-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .04rem;
+  min-width: .78rem;
+  height: .36rem;
+  padding: 0 .12rem;
+  background: rgba(0, 0, 0, .45);
+  border: 1px solid var(--mint-800);
+  color: var(--mint-400);
+  font-family: var(--font-num);
+  font-size: .24rem;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-indent: .18em;
+  transition: border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out), background var(--t-fast);
+}
+.hall-code:hover { border-color: var(--mint-500); color: var(--mint-400); background: var(--mint-a10, rgba(78, 216, 175, .1)); }
+.hall-code--sm {
+  min-width: 0;
+  height: .28rem;
+  padding: 0 .1rem;
+  font-size: .18rem;
+  letter-spacing: .12em;
+  text-indent: .12em;
+}
+
+.hall-link {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--mint-600);
+  font-size: .14rem;
+  letter-spacing: .04em;
+  text-decoration: underline dotted;
+  text-underline-offset: .04rem;
+}
+.hall-link:hover { color: var(--mint-400); }
+
+/* ---- 01 · online roster -------------------------------------------------------------------- */
+.hall-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.hall-list > li + li { border-top: 1px solid var(--line); }
+
+.hall-who {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .06rem .12rem;
+  padding: .1rem .16rem;
+  transition: background var(--t-fast);
+}
+.hall-who:hover { background: rgba(255, 255, 255, .022); }
+.hall-who.is-busy { background: linear-gradient(90deg, var(--red-a20), transparent 70%); }
+.hall-who.is-me { --bk-c: var(--mint-500); box-shadow: inset 2px 0 0 var(--mint-600); }
+.hall-who__text { display: flex; flex-direction: column; gap: .02rem; min-width: 0; }
+.hall-who__name {
+  display: flex;
+  align-items: center;
+  gap: .08rem;
+  font-size: .19rem;
+  font-weight: 700;
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hall-who__you {
+  padding: 0 .06rem;
+  background: var(--mint-900);
+  border: 1px solid var(--mint-800);
+  color: var(--mint-500);
+  font-size: .12rem;
+  font-weight: 700;
+}
+.hall-who__room {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: .1rem;
+  min-width: 0;
+}
+.hall-who__idle { font-size: .14rem; }
+.hall-who__live, .hall-room__live {
+  display: inline-flex;
+  align-items: center;
+  gap: .04rem;
+  color: var(--red-premium);
+  font-size: .14rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.hall-who__live .icon, .hall-room__live .icon { width: .16rem; height: .16rem; }
+
+/* ---- 02 · open rooms ----------------------------------------------------------------------- */
+.hall-room { display: flex; flex-direction: column; gap: .08rem; padding: .14rem .16rem; transition: background var(--t-fast); }
+.hall-room:hover { background: rgba(255, 255, 255, .022); }
+.hall-room.is-open { box-shadow: inset 2px 0 0 var(--mint-700); }
+.hall-room.is-busy { opacity: .72; }
+.hall-room__head { display: flex; align-items: center; gap: .12rem; min-width: 0; }
+.hall-room__mode {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .05rem;
+  color: var(--text-lo);
+  font-size: .15rem;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.hall-room__mode .icon { width: .17rem; height: .17rem; }
+.hall-room__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .06rem .16rem;
+  color: var(--text-lo);
+  font-size: .15rem;
+}
+.hall-room__meta b { color: var(--text-hi); font-weight: 700; }
+.hall-room__host { display: inline-flex; align-items: center; gap: .05rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hall-room__host .icon { width: .16rem; height: .16rem; color: var(--gold-2); }
+.hall-room__acts { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
+.hall-room__note { margin-left: auto; font-size: .14rem; }
+
+/* ---- 03 · chat channel --------------------------------------------------------------------- */
+.hall-chat { display: flex; flex-direction: column; min-height: 3.4rem; }
+.hall-chat .panel__body { display: flex; flex-direction: column; min-height: 0; }
+/* The log scrolls on its own; the form below it never moves. `overscroll-behavior` keeps a flick at
+   the end of the log from scrolling the page behind it. */
+.hall-chat__log {
+  display: flex;
+  flex-direction: column;
+  gap: .04rem;
+  height: 2.6rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: .32rem .18rem .12rem;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 26px),
+    rgba(0, 0, 0, .28);
+}
+.hall-line { display: flex; align-items: baseline; gap: .1rem; font-size: .16rem; line-height: 1.5; }
+.hall-line__time { flex: none; color: var(--text-dim); font-size: .13rem; }
+.hall-line__name { flex: none; max-width: 1.4rem; color: var(--mint-600); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hall-line__text { min-width: 0; color: var(--text-md); word-break: break-word; }
+.hall-line.is-me .hall-line__name { color: var(--gold-2); }
+.hall-line.is-me .hall-line__text { color: var(--text-hi); }
+
+.hall-chat__form { display: flex; align-items: flex-end; gap: .12rem; padding: .12rem .18rem; border-top: 1px solid var(--line); }
+.hall-chat__form .field { flex: 1 1 auto; }
+.hall-chat__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .12rem;
+  padding: 0 .18rem .12rem;
+  font-size: .14rem;
+}
+
+/* ---- 04 · recent results ------------------------------------------------------------------- */
+.hall-res { display: flex; flex-direction: column; gap: .06rem; padding: .14rem .16rem; }
+.hall-res.is-win { --bk-c: var(--mint-500); box-shadow: inset 2px 0 0 var(--mint-600); }
+.hall-res.is-lose { --bk-c: var(--red-premium); box-shadow: inset 2px 0 0 var(--red); }
+.hall-res__head { display: flex; align-items: center; gap: .12rem; flex-wrap: wrap; }
+.hall-res__state { font-size: .18rem; font-weight: 700; letter-spacing: .06em; }
+.hall-res.is-win .hall-res__state { color: var(--mint-400); }
+.hall-res.is-lose .hall-res__state { color: var(--red-premium); }
+.hall-res__at { margin-left: auto; font-size: .14rem; }
+.hall-res__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .06rem .14rem;
+  color: var(--text-lo);
+  font-size: .15rem;
+}
+.hall-res__meta b { color: var(--text-hi); font-weight: 700; }
+.hall-res__players { display: flex; flex-direction: column; gap: .04rem; margin-top: .04rem; }
+.hall-res__who {
+  display: flex;
+  align-items: baseline;
+  gap: .1rem;
+  font-size: .15rem;
+  color: var(--text-lo);
+}
+.hall-res__who b { flex: none; max-width: 1.6rem; color: var(--text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hall-res__who.is-win b { color: var(--text-hi); }
+.hall-res__ai {
+  margin-left: .05rem;
+  padding: 0 .04rem;
+  background: var(--ice-900);
+  border: 1px solid var(--line-2);
+  color: var(--ice);
+  font-size: .11rem;
+  font-style: normal;
+  letter-spacing: .04em;
+}
+/* 评语 (the match's 称号): the one line people actually read, so it gets its own colour. */
+.hall-res__title {
+  min-width: 0;
+  color: var(--gold-2);
+  font-size: .15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Narrow viewports (< 768 CSS px the root scale is clamped at 40 px): three columns stop fitting, so the
+   roster moves to the top and the two long lists share the width. */
+@media (max-width: 767px) {
+  .hall-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-left: .3rem; padding-right: .3rem; }
+  .hall-col--who { grid-column: 1 / -1; }
+  .hall-col--main { height: auto; }
+}
+
+/* Short landscape phones (≤ 460 CSS px tall): the chat log shrinks to its minimum and the decorative
+   hints go away, so the input and the two lists stay reachable (mirrors devices.css lobby rules). */
+@media (max-height: 460px) {
+  .hall-body { padding-top: .2rem; padding-bottom: .2rem; gap: .3rem; }
+  .hall-chat { min-height: 2.6rem; }
+  .hall-chat__log { height: 1.7rem; padding-top: .24rem; }
+  .hall-chat__foot { display: none; }
+  .hall-who, .hall-room, .hall-res { padding-top: .08rem; padding-bottom: .08rem; }
+  .hall-res__players { display: none; }
+}

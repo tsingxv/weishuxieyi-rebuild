@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <title>收到房间邀请</title>
+  <style>
+    /* This document is the whole frameless prompt window: a small card, bottom-left of the game
+       window. It is deliberately opaque-free and compact — it must read at a glance and cover as
+       little of the match as possible. */
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+    body {
+      font: 13px/1.5 "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      color: #d8e3de;
+      user-select: none;
+      -webkit-app-region: no-drag;
+    }
+    .card {
+      position: relative; height: 100%; padding: 11px 13px 12px;
+      background: linear-gradient(180deg, rgba(22,32,29,.97), rgba(12,15,14,.98));
+      border: 1px solid #2f9c7c;
+      border-radius: 10px;
+      box-shadow: 0 8px 26px rgba(0,0,0,.55), inset 0 0 0 1px rgba(78,216,175,.12);
+      animation: in 160ms ease-out;
+      overflow: hidden;
+    }
+    @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(180deg, #4ed8af, rgba(78,216,175,.15)); }
+    .hd { display: flex; align-items: baseline; gap: 7px; margin-bottom: 6px; }
+    .hd__t { font-size: 11.5px; letter-spacing: .13em; color: #6fd7bb; text-transform: uppercase; }
+    .hd__s { font-size: 10.5px; color: #6b7a74; margin-left: auto; }
+    .body { display: flex; align-items: flex-end; gap: 11px; }
+    .code {
+      font: 700 27px/1 ui-monospace, Consolas, monospace; letter-spacing: .16em;
+      color: #eafff8; padding: 2px 9px 3px; border-radius: 7px;
+      background: #12211c; border: 1px solid #2c5548;
+    }
+    .facts { min-width: 0; padding-bottom: 2px; }
+    .fact { font-size: 11.5px; color: #9fb0aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fact b { color: #cdf3e7; font-weight: 600; font-family: ui-monospace, Consolas, monospace; }
+    .fact--new { color: #e8c98a; }
+    .fact--new b { color: #ffdda0; }
+    .acts { display: flex; gap: 7px; margin-top: 11px; }
+    button {
+      font: inherit; font-size: 12.5px; padding: 7px 12px; border-radius: 7px; cursor: pointer;
+      border: 1px solid #2c3a35; background: #182220; color: #d8e3de;
+    }
+    button:hover { border-color: #4ed8af; color: #eafff8; }
+    button:active { transform: translateY(1px); }
+    button.primary { flex: 1; background: #1f6f59; border-color: #2f9c7c; color: #eafff8; font-weight: 600; }
+    button.primary:hover { background: #26866c; }
+    button.ghost { color: #8b9a94; border-color: #23302c; }
+    button.ghost:hover { color: #d8e3de; }
+    button:disabled { opacity: .5; cursor: default; }
+    .gone { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <i class="accent"></i>
+    <div class="hd">
+      <span class="hd__t">收到房间邀请</span>
+      <span class="hd__s" id="src"></span>
+    </div>
+    <div class="body">
+      <div class="code" id="code">····</div>
+      <div class="facts">
+        <div class="fact" id="host"></div>
+        <div class="fact" id="hint">按「进入房间」和对方一起开打</div>
+      </div>
+    </div>
+    <div class="acts">
+      <button class="primary" id="accept" type="button">进入房间</button>
+      <button id="ignore" type="button">忽略</button>
+      <button class="ghost" id="never" type="button">不再提示</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let busy = false;
+
+    function setBusy(value) {
+      busy = value;
+      for (const id of ['accept', 'ignore', 'never']) $(id).disabled = value;
+    }
+
+    /** Render one invite payload ({ code, server, hostNote, source }) pushed by the main process. */
+    function render(info) {
+      if (!info) return;
+      $('code').textContent = info.code || '····';
+      const host = $('host');
+      if (info.server) {
+        host.textContent = '';
+        host.className = 'fact' + (info.hostNote ? ' fact--new' : '');
+        host.appendChild(document.createTextNode(info.hostNote ? '主机 ' : '服务器 '));
+        const b = document.createElement('b');
+        b.textContent = info.server;
+        host.appendChild(b);
+      } else {
+        host.textContent = '使用当前已配置的服务器';
+        host.className = 'fact';
+      }
+      $('hint').textContent = info.hostNote || '按「进入房间」和对方一起开打';
+      $('src').textContent = info.source === 'code' ? '剪贴板 · 房间码' : '剪贴板 · 邀请链接';
+    }
+
+    async function act(name, fn) {
+      if (busy) return;
+      setBusy(true);
+      try { await fn(); } catch (e) { setBusy(false); $('hint').textContent = String(e && e.message || e); }
+    }
+
+    $('accept').addEventListener('click', () => act('accept', () => window.spPrompt.accept()));
+    $('ignore').addEventListener('click', () => act('ignore', () => window.spPrompt.ignore()));
+    $('never').addEventListener('click', () => act('never', () => window.spPrompt.never()));
+
+    window.spPrompt.onInvite(render);
+    (async () => { render(await window.spPrompt.info()); })();
+  </script>
+</body>
+</html>

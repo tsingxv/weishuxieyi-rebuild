@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+  <title>服务器设置 · 卫戍协议：盟约</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 22px 24px 18px;
+      background: radial-gradient(120% 90% at 50% 0%, #16201d 0%, #0c0f0e 62%);
+      color: #d8e3de;
+      font: 14px/1.6 "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      user-select: none;
+    }
+    h1 { margin: 0 0 4px; font-size: 19px; letter-spacing: 1px; color: #4ed8af; }
+    .sub { margin: 0 0 18px; font-size: 12.5px; color: #8b9a94; }
+    label { display: block; font-size: 12.5px; color: #9fb0aa; margin-bottom: 6px; letter-spacing: .5px; }
+    .row { display: flex; gap: 8px; }
+    input[type=text] {
+      flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px;
+      border: 1px solid #2c3a35; background: #101614; color: #e8f2ee;
+      font: 14px/1.4 ui-monospace, Consolas, monospace;
+    }
+    input[type=text]:focus { outline: none; border-color: #4ed8af; box-shadow: 0 0 0 3px rgba(78,216,175,.14); }
+    input[type=text].bad { border-color: #d8695f; }
+    button {
+      font: inherit; padding: 10px 14px; border-radius: 8px; cursor: pointer;
+      border: 1px solid #2c3a35; background: #182220; color: #d8e3de;
+    }
+    button:hover:not(:disabled) { border-color: #4ed8af; color: #eafff8; }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: #1f6f59; border-color: #2f9c7c; color: #eafff8; font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #26866c; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip {
+      font: 12px/1 ui-monospace, Consolas, monospace; padding: 6px 9px; border-radius: 999px;
+      border: 1px dashed #33443e; background: #131a18; color: #9fb0aa; cursor: pointer;
+    }
+    .chip:hover { border-color: #4ed8af; color: #cdf3e7; border-style: solid; }
+    .status { margin-top: 14px; min-height: 40px; font-size: 12.5px; border-radius: 8px; padding: 10px 12px; background: #101614; border: 1px solid #23302c; color: #9fb0aa; white-space: pre-wrap; }
+    .status.ok { border-color: #2f9c7c; color: #b7f0dd; }
+    .status.err { border-color: #7a3b36; color: #f0bdb7; }
+    .hint { margin-top: 14px; font-size: 12px; color: #7d8c86; }
+    .hint code { color: #b7cfc7; background: #131a18; padding: 1px 5px; border-radius: 4px; }
+    .toggle { display: flex; align-items: flex-start; gap: 9px; margin-top: 16px; padding: 11px 12px; border-radius: 8px; background: #101614; border: 1px solid #23302c; }
+    .toggle input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: #2f9c7c; cursor: pointer; flex: none; }
+    .toggle__body { min-width: 0; }
+    .toggle__label { font-size: 13px; color: #d8e3de; cursor: pointer; }
+    .toggle__note { margin-top: 3px; font-size: 11.5px; color: #7d8c86; }
+    .sect { margin-top: 18px; padding-top: 14px; border-top: 1px solid #1d2724; }
+    .sect h2 { margin: 0 0 6px; font-size: 13px; letter-spacing: .6px; color: #9fb0aa; font-weight: 600; }
+    .sect p { margin: 0 0 6px; font-size: 11.5px; color: #7d8c86; }
+    .sect ul { margin: 6px 0 0; padding-left: 18px; font-size: 11.5px; color: #7d8c86; }
+    .sect li { margin-bottom: 4px; }
+    footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+    .meta { font-size: 11.5px; color: #6b7a74; }
+    a { color: #6fd7bb; }
+  </style>
+</head>
+<body>
+  <h1>服务器设置</h1>
+  <p class="sub">填写开服（房主）那台电脑的地址，客户端会自动连上它的对局。</p>
+
+  <label for="server">主机地址</label>
+  <div class="row">
+    <input id="server" type="text" spellcheck="false" autocomplete="off" placeholder="192.168.1.2:3000" />
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <div class="status" id="status">尚未测试连接。</div>
+
+  <div class="hint">
+    同一路由器下填房主的局域网地址，例如 <code>192.168.1.2:3000</code>；<br />
+    Radmin VPN 联机填房主的 Radmin 地址，例如 <code>26.100.222.17:3000</code>。<br />
+    端口默认 3000，省略也能识别。
+  </div>
+
+  <div class="sect">
+    <h2>剪贴板与邀请</h2>
+    <div class="toggle">
+      <input id="clipboardWatch" type="checkbox" />
+      <span class="toggle__body">
+        <label class="toggle__label" for="clipboardWatch">自动识别剪贴板中的房间码</label>
+        <span class="toggle__note">好友把邀请链接发到微信／QQ 后，你在客户端里复制它，左下角就会弹出「进入房间」。</span>
+      </span>
+    </div>
+    <ul>
+      <li>只识别房间码和邀请链接，普通文字不会被当成邀请。</li>
+      <li>识别到邀请时只弹一个小提示，不会抢走游戏窗口的焦点，也不会挡住战斗界面。</li>
+      <li>邀请链接里带主机地址（例如 <code>http://192.168.1.2:3000/?room=ABCD</code>）时，点「进入房间」会同时把主机地址换成链接里的那台。</li>
+      <li>想彻底关掉，点提示上的「不再提示」即可，也可以随时在这里重新打开。</li>
+    </ul>
+  </div>
+
+  <footer>
+    <span class="meta" id="meta"></span>
+    <span>
+      <button id="cancel" type="button">取消</button>
+      <button id="test" type="button">测试连接</button>
+      <button id="save" class="primary" type="button">保存并连接</button>
+    </span>
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const input = $('server');
+    const status = $('status');
+    const chips = $('chips');
+    const clipboardWatch = $('clipboardWatch');
+
+    function setStatus(text, kind) {
+      status.textContent = text;
+      status.className = 'status' + (kind ? ' ' + kind : '');
+    }
+
+    function setBusy(busy) {
+      for (const id of ['test', 'save', 'cancel']) $(id).disabled = busy;
+    }
+
+    function renderChips(list, current) {
+      chips.textContent = '';
+      const seen = new Set();
+      const trimmedCurrent = (current || '').trim();
+      for (const item of list) {
+        if (!item || seen.has(item) || item === trimmedCurrent) continue;
+        seen.add(item);
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip';
+        b.textContent = item;
+        b.addEventListener('click', () => { input.value = item; input.focus(); testConnection(); });
+        chips.appendChild(b);
+      }
+    }
+
+    async function testConnection() {
+      const value = input.value;
+      setBusy(true);
+      setStatus('正在连接…');
+      const res = await window.spClient.test(value);
+      setBusy(false);
+      if (!res.ok) { setStatus('无法连接：' + (res.error || '未知错误'), 'err'); return false; }
+      const bits = [];
+      if (res.app) bits.push('版本 ' + res.app);
+      if (res.protocol != null) bits.push('协议 ' + res.protocol);
+      if (res.rooms != null) bits.push('房间 ' + res.rooms);
+      if (res.sockets != null) bits.push('在线 ' + res.sockets);
+      if (res.uptimeSec != null) bits.push('已运行 ' + Math.round(res.uptimeSec / 60) + ' 分钟');
+      setStatus('连接成功 · 服务器响应正常\n' + bits.join(' · '), 'ok');
+      return true;
+    }
+
+    async function save() {
+      setBusy(true);
+      const res = await window.spClient.save(input.value);
+      setBusy(false);
+      if (!res.ok) { setStatus('保存失败：' + (res.error || '地址无效'), 'err'); return; }
+      setStatus('已保存：' + res.label + '\n游戏窗口正在重新连接…', 'ok');
+      setTimeout(() => window.spClient.close(), 700);
+    }
+
+    input.addEventListener('input', () => { input.classList.remove('bad'); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); });
+    $('test').addEventListener('click', testConnection);
+    $('save').addEventListener('click', save);
+    $('cancel').addEventListener('click', () => window.spClient.close());
+
+    // The clipboard toggle saves immediately: it is a preference, not part of the address, so it must
+    // not be lost by closing the window with 取消.
+    clipboardWatch.addEventListener('change', async () => {
+      const wanted = clipboardWatch.checked;
+      clipboardWatch.disabled = true;
+      const res = await window.spClient.setClipboardWatch(wanted);
+      clipboardWatch.disabled = false;
+      clipboardWatch.checked = res && res.clipboardWatch != null ? res.clipboardWatch : wanted;
+      setStatus(clipboardWatch.checked
+        ? '已开启：复制好友的邀请链接后，游戏里会弹出「进入房间」。'
+        : '已关闭：客户端不会再读取剪贴板。', 'ok');
+    });
+
+    (async () => {
+      const cfg = await window.spClient.config();
+      input.value = cfg.server || cfg.defaultServer || '';
+      clipboardWatch.checked = cfg.clipboardWatch !== false;
+      const candidates = [];
+      if (cfg.server) candidates.push(cfg.server);
+      if (cfg.defaultServer) candidates.push(cfg.defaultServer);
+      for (const item of cfg.recent || []) candidates.push(item);
+      if (!cfg.server && !cfg.defaultServer) {
+        candidates.push('192.168.1.2:3000', '26.100.222.17:3000', '127.0.0.1:3000');
+      }
+      renderChips(candidates, input.value);
+      const suffix = cfg.localPort ? ' · 本地端口 ' + cfg.localPort : '';
+      $('meta').textContent = '客户端 v' + cfg.version + suffix;
+      if (cfg.connected && cfg.current) setStatus('当前已配置：' + cfg.current, 'ok');
+      input.focus();
+      input.select();
+    })();
+  </script>
+</body>
+</html>

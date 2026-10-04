@@ -1,0 +1,585 @@
+// The 8 core bonds (server/sim/content/bonds/core.js): per-tier / per-layer formulas of research 02 §3.1–3.8 with the
+// data/bonds.json numbers, 调和 / 变形同构体 membership, live layers, inactive bonds, two players in a boss field, and
+// the 维多利亚 hammer milestone in a real match.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { makeBattle, chessRec, enemyRec, checkInvariants } from '../helpers/battleHarness.js';
+import { bondBb, deps, prdConstant, reached, yanyouShare, registerMeta as coreRegisterMeta } from '../../server/sim/content/bonds/core.js';
+import * as items from '../../server/sim/content/items.js';
+import { TOKEN_IDS } from '../../server/sim/content/tokens.js';
+import { createRegistry } from '../../server/match/effectsMeta.js';
+import { makeMatch, DATA, give, legalTileFor } from '../match/harness.js';
+
+const close = (a, b, eps = 1e-6, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg ?? ''} expected ${b}, got ${a}`);
+const op = (id, bonds, extra = {}) => chessRec({
+  id, bonds, profession: 'WARRIOR', skill: null, ...extra,
+  stats: { atk: 1000, maxHp: 10000, def: 0, blockCnt: 2, ...(extra.stats || {}) },
+});
+const bondOn = (count, layers = 0, tier = null, thresholds = [3, 6, 9]) => ({
+  count, active: count >= thresholds[0], tier: tier ?? thresholds.filter((t) => count >= t).length, layers,
+});
+const dummy = enemyRec({ key: 'e_dummy', hp: 1e8, speed: 0, def: 0, res: 0 });
+const buffOf = (u, key) => u.buffs.find((b) => b.key === key) ?? null;
+const tagged = (h, tag) => h.hooksOf('damaged').filter((c) => c.dmg && c.dmg.tags && c.dmg.tags.includes(tag));
+
+/** Row-major units on board rows 9–12, cols 3.. (board coords). */
+function lineup(ids, { row = 10, col = 3, items: it = {} } = {}) {
+  return ids.map((chessId, i) => ({ chessId, row: row + Math.floor(i / 7), col: col + (i % 7), items: it[i] }));
+}
+
+function defsOf(list) {
+  const chess = {};
+  for (const [id, bonds, extra] of list) chess[id] = op(id, bonds, extra);
+  return { chess, enemies: { e_dummy: dummy } };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 炎
+
+test('炎: members ATK ×(1+0.23+0.009L), 调和 enjoys it, non-members unchanged, live layers', () => {
+  const bb = bondBb('yanShip');
+  assert.equal(bb.base_atk, 0.23);
+  const defs = defsOf([['y1_a', ['yanShip']], ['y2_a', ['yanShip']], ['y3_a', ['yanShip']], ['mani_a', ['maniShip']], ['none_a', ['preciShip']]]);
+  const h = makeBattle({
+    defs, units: lineup(['y1_a', 'y2_a', 'y3_a', 'mani_a', 'none_a']),
+    bonds: { yanShip: bondOn(4, 10), maniShip: { count: 1, active: true, tier: 1, layers: 0 } },
+  });
+  h.step(1);
+  close(h.unit('y1_a').s.atk, 1000 * (1 + 0.23 + 0.009 * 10));
+  close(h.unit('mani_a').s.atk, 1000 * (1 + 0.23 + 0.009 * 10), 1e-6, '调和');
+  close(h.unit('none_a').s.atk, 1000);
+  assert.equal(h.b.allyUnits.filter((u) => u.defId === TOKEN_IDS.yanyou).length, 0, 'no 炎佑 below 6');
+  h.b.addLayers('p1', 'yanShip', 20, 'test');
+  h.step(2);
+  close(h.unit('y2_a').s.atk, 1000 * (1 + 0.23 + 0.009 * 30), 1e-6, 'live layers');
+  checkInvariants(h.b);
+});
+
+test('炎 6 / 9: one / two 炎佑 with their template stats + 30 % of the real 炎 sums; 9: ATK ×1.5, damage taken ×0.1', () => {
+  assert.equal(yanyouShare(), 0.3);
+  const bb = bondBb('yanShip');
+  // PRTS: "登场时使自身攻击力、生命值增加…所有【炎】盟约干员攻击力、生命值的30%（最终加算）" — added to the template
+  const tpl = DATA.tokens.enemy_9012_acloon.stats;
+  assert.deepEqual([tpl.atk, tpl.maxHp], [600, 12000], 'enemy_9012_acloon template');
+  for (const n of [6, 9]) {
+    const list = [];
+    for (let i = 0; i < n - 1; i++) list.push([`y${i}_a`, ['yanShip']]);
+    list.push(['mani_a', ['maniShip']]);
+    const h = makeBattle({
+      defs: defsOf(list), units: lineup(list.map((x) => x[0])),
+      bonds: { yanShip: bondOn(n, 0), maniShip: { count: 1, active: true, tier: 1, layers: 0 } },
+    });
+    h.step(1);
+    const yy = h.b.allyUnits.filter((u) => u.defId === TOKEN_IDS.yanyou && u.alive);
+    assert.equal(yy.length, n === 9 ? 2 : 1, `${n} 炎 → 炎佑 count`);
+    const sumAtk = (n - 1) * 1000 * (1 + bb.base_atk);            // 调和 excluded from the sums
+    const sumHp = (n - 1) * 10000;
+    for (const y of yy) {
+      close(y.s.atk, (tpl.atk + sumAtk * 0.3) * (n === 9 ? bb.atk : 1), 1e-6, `炎佑 ATK @${n}`);
+      close(y.s.maxHp, tpl.maxHp + sumHp * 0.3, 1e-6, `炎佑 HP @${n}`);
+      close(y.s.dmgTakenMul, n === 9 ? 1 - bb.damage_resistance : 1, 1e-9, `炎佑 dmgTaken @${n}`);
+    }
+    checkInvariants(h.b);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 萨尔贡
+
+const sargonDefs = (n) => {
+  const list = [];
+  for (let i = 0; i < n; i++) list.push([`s${i}_a`, ['sargonShip'], { skill: { duration: 1000, spCost: 10, initSp: 0 } }]);
+  list.push(['none_a', ['preciShip']]);
+  return list;
+};
+
+test('萨尔贡 3: every member skill start → one independent stack on every member (ASPD +12, 5+0.22L s, ≤ 25)', () => {
+  const list = sargonDefs(3);
+  const L = 10;
+  const h = makeBattle({ defs: defsOf(list), units: lineup(list.map((x) => x[0])), bonds: { sargonShip: bondOn(3, L, null, [3, 6]) } });
+  h.step(1);
+  const [a, b, c] = ['s0_a', 's1_a', 's2_a'].map((id) => h.unit(id));
+  a.skill.activate('test', { free: true });
+  b.skill.activate('test', { free: true });
+  assert.equal(c.s.aspd, 100 + 2 * 12, 'two stacks on the non-caster');
+  assert.equal(h.unit('none_a').s.aspd, 100);
+  assert.equal(buffOf(c, 'bond:sargon:atk'), null, 'no ATK stacks below 6');
+  close(buffOf(c, 'bond:sargon').timeLeft, 5 + 0.22 * L, 1e-6);
+  // cap: 30 more activations → 25 stacks
+  for (let i = 0; i < 30; i++) { a.skill.end('test'); a.skill.activate('test', { free: true }); }
+  assert.equal(c.buffs.filter((x) => x.key === 'bond:sargon').length, 25);
+  assert.equal(c.s.aspd, Math.min(600, 100 + 300));
+  h.run(5 + 0.22 * L + 0.2);
+  assert.equal(c.buffs.filter((x) => x.key === 'bond:sargon').length, 0, 'stacks expire');
+  assert.equal(c.s.aspd, 100);
+  checkInvariants(h.b);
+});
+
+test('萨尔贡 6: each stack also ATK +12 % (additive, one multiplier), dropped when the stacks expire', () => {
+  const list = sargonDefs(6);
+  const h = makeBattle({ defs: defsOf(list), units: lineup(list.map((x) => x[0])), bonds: { sargonShip: bondOn(6, 0, null, [3, 6]) } });
+  h.step(1);
+  const a = h.unit('s0_a'), f = h.unit('s5_a');
+  for (let i = 0; i < 3; i++) { a.skill.end('test'); a.skill.activate('test', { free: true }); }
+  close(f.s.atk, 1000 * (1 + 3 * 0.12));
+  for (let i = 0; i < 30; i++) { a.skill.end('test'); a.skill.activate('test', { free: true }); }
+  close(f.s.atk, 1000 * (1 + 25 * 0.12), 1e-6, 'cap +300 %');
+  h.run(5.3);
+  close(f.s.atk, 1000);
+  checkInvariants(h.b);
+});
+
+test('萨尔贡 6 + 娜仁图亚: no ATK stacks; skill start lends the caster’s equipment (tier ≤ 5, 60 s) to its 8 neighbours', () => {
+  const list = sargonDefs(6);
+  const calls = [];
+  deps.lendItemEffects = (battle, from, to, opts) => calls.push([from.defId, to.defId, opts]);
+  try {
+    // caster s0 at (10,4) with an item; neighbours: s1 (10,5), s2 (10,3); none_a far away
+    const units = [
+      { chessId: 's0_a', row: 10, col: 4, items: ['test_item_a'] }, { chessId: 's1_a', row: 10, col: 5 }, { chessId: 's2_a', row: 11, col: 3 },
+      { chessId: 's3_a', row: 12, col: 8 }, { chessId: 's4_a', row: 12, col: 9 }, { chessId: 's5_a', row: 12, col: 10 },
+      { chessId: 'none_a', row: 9, col: 4 },
+    ];
+    const h = makeBattle({ defs: defsOf(list), units, bandId: 'band_narant', bonds: { sargonShip: bondOn(6, 0, null, [3, 6]) } });
+    h.step(1);
+    h.unit('s0_a').skill.activate('test', { free: true });
+    assert.deepEqual(calls.map((c) => c[1]).sort(), ['none_a', 's1_a', 's2_a']);
+    assert.deepEqual(calls[0][2], { maxTier: 5, duration: 60 });
+    assert.equal(h.unit('s1_a').s.aspd, 112, 'ASPD stacks still apply');
+    close(h.unit('s1_a').s.atk, 1000, 1e-6, 'no ATK stacks with 娜仁图亚');
+    // a member without equipment lends nothing
+    calls.length = 0;
+    h.unit('s1_a').skill.activate('test', { free: true });
+    assert.equal(calls.length, 0);
+    checkInvariants(h.b);
+  } finally { deps.lendItemEffects = null; }
+  if (typeof items.lendItemEffects === 'function') {
+    const h = makeBattle({ defs: defsOf(list), units: [{ chessId: 's0_a', row: 10, col: 4, items: ['chess_item_1_01_e_a'] }, { chessId: 's1_a', row: 10, col: 5 }],
+      bandId: 'band_narant', bonds: { sargonShip: bondOn(6, 0, null, [3, 6]) } });
+    h.step(1);
+    h.unit('s0_a').skill.activate('test', { free: true });
+    h.run(1);
+    assert.equal(h.b.errors.length, 0, JSON.stringify(h.b.errors));
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 维多利亚
+
+test('维多利亚: equipment carriers deal ×(1.25+0.008L); 6: ATK +50 % per item, +80 % per golden item', () => {
+  const list = [['v0_a', ['victoriaShip']], ['v1_a', ['victoriaShip']], ['v2_a', ['victoriaShip']], ['v3_a', ['victoriaShip']], ['v4_a', ['victoriaShip']], ['v5_a', ['victoriaShip']]];
+  const L = 30;
+  for (const n of [3, 6]) {
+    const h = makeBattle({
+      defs: defsOf(list), units: lineup(list.slice(0, n).map((x) => x[0]), { items: { 0: ['test_item_a'], 1: ['test_item_a', 'test_item_b'] } }),
+      bonds: { victoriaShip: bondOn(n, L, null, [3, 6]) },
+    });
+    h.step(1);
+    const [a, b, c] = ['v0_a', 'v1_a', 'v2_a'].map((id) => h.unit(id));
+    close(a.s.dmgDealtMul, 1.25 + 0.008 * L);
+    close(b.s.dmgDealtMul, 1.25 + 0.008 * L);
+    close(c.s.dmgDealtMul, 1, 1e-9, 'no equipment → no bonus');
+    if (n === 3) {
+      close(a.s.atk, 1000);
+    } else {
+      close(a.s.atk, 1000 * 1.5);
+      close(b.s.atk, 1000 * (1 + 0.5 + 0.8));
+      close(c.s.atk, 1000);
+    }
+    h.b.addLayers('p1', 'victoriaShip', 10, 'test');
+    h.step(2);
+    close(a.s.dmgDealtMul, 1.25 + 0.008 * (L + 10), 1e-9, 'live layers');
+    checkInvariants(h.b);
+  }
+});
+
+test('维多利亚 hammers: every 25 layers → 1 item of pool_equip_vict, once per milestone, only while active (catch-up)', () => {
+  // only the core bond meta: no 获得时 garrisons (洛洛 would craft items) muddying the item count
+  const reg = createRegistry({ content: false });
+  coreRegisterMeta(reg);
+  const h = makeMatch({ mode: 'solo', seed: 5, registry: reg, fake: true }).start();
+  h.toPrep(1);
+  const ps = h.ps('p_0');
+  for (const p of [...ps.board.values(), ...ps.hand.filter(Boolean)]) if (p.kind === 'chess') ps.returnCopies(p);
+  ps.board.clear();
+  ps.hand.fill(null);
+  ps.temp.fill(null);
+  ps.recompute();
+  const pool = new Set(DATA.choices.pools.pool_equip_vict.items.map((id) => id.replace(/_a$/, '')));
+  // two identical normal hammers merge into the golden one (= 2 hammers)
+  const hammers = () => [...ps.hand, ...ps.temp].filter((p) => p && p.kind === 'item' && pool.has(p.id.replace(/_[ab]$/, '')))
+    .reduce((n, p) => n + (/_b$/.test(p.id) ? 2 : 1), 0);
+  assert.equal(ps.bonds.victoriaShip?.active ?? false, false);
+  ps.addLayers('victoriaShip', 51);           // "无需激活" gains while inactive: milestones 25 and 50 are owed
+  assert.equal(hammers(), 0, 'inactive: no hammer');
+  for (const id of ['chess_char_1_06_a', 'chess_char_2_05_a', 'chess_char_3_08_a']) give(h.m, ps, id, 'board', legalTileFor(h.m, ps, id));
+  assert.equal(ps.bonds.victoriaShip.active, true);
+  h.m.dispatch(ps, 'onPrepStart', { round: h.m.round });
+  assert.equal(hammers(), 2, 'caught up once active');
+  h.m.dispatch(ps, 'onPrepEnd', { round: h.m.round });
+  ps.addLayers('victoriaShip', 10);           // 61
+  assert.equal(hammers(), 2, 'no double payment');
+  ps.addLayers('victoriaShip', 14);           // 75
+  assert.equal(hammers(), 3);
+  assert.equal(ps.counters['bond:victoria:hammers'], 3);
+  h.invariants();
+  h.m.dispose();
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 谢拉格
+
+test('谢拉格: ×1.25, vs cold / frozen ×(1.35+0.01L); 6: a cold wind every 25 s for 20+0.1L s', () => {
+  const list = [];
+  for (let i = 0; i < 6; i++) list.push([`k${i}_a`, ['kjeragShip']]);
+  const L = 40;
+  for (const n of [3, 6]) {
+    const h = makeBattle({
+      defs: defsOf(list), units: lineup(list.slice(0, n).map((x) => x[0])),
+      enemies: [{ key: 'e_dummy', pos: [9, 8] }, { key: 'e_dummy', pos: [12, 8] }],
+      bonds: { kjeragShip: bondOn(n, L, null, [3, 6]) }, autoFinish: false, timeLimit: 200,
+    });
+    h.step(1);
+    const k = h.unit('k0_a');
+    const [e1, e2] = h.enemies();
+    if (n === 3) {
+      const d1 = h.b.dealDamage(k, e1, { amount: 1000, type: 'true' });
+      close(d1, 1250);
+      h.b.applyStatus(e2, 'cold', { duration: 5 });
+      const d2 = h.b.dealDamage(k, e2, { amount: 1000, type: 'true' });
+      close(d2, 1000 * (1.35 + 0.01 * L));
+      h.b.applyStatus(e2, 'cold', { duration: 5 });          // second cold ⇒ frozen
+      assert.ok(e2.s.flags.freeze);
+      close(h.b.dealDamage(k, e2, { amount: 1000, type: 'true' }), 1000 * (1.35 + 0.01 * L), 1e-6, 'frozen');
+      h.run(30);
+      assert.ok(!e1.s.flags.cold, 'no wind below 6');
+    } else {
+      h.run(24.8 - h.b.time);
+      assert.ok(!e1.s.flags.cold);
+      h.run(0.4);
+      assert.ok(e1.s.flags.cold && e2.s.flags.cold, 'first gust at 25 s');
+      h.run(20 + 0.1 * L - 0.6);
+      assert.ok(e1.s.flags.cold, `cold lasts ${20 + 0.1 * L} s`);
+      h.run(0.6);
+      assert.ok(!e1.s.flags.cold && !e1.s.flags.freeze, 'cold over');
+    }
+    checkInvariants(h.b);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 拉特兰
+
+test('拉特兰: ammo ×(1.05+0.015L) floored; 6: every ammo used → all members ATK +4 %, ≤ +200 %', () => {
+  const list = [];
+  for (let i = 0; i < 6; i++) list.push([`l${i}_a`, ['lateranoShip'], { profession: 'SNIPER' }]);
+  list.push(['none_a', ['preciShip'], { profession: 'SNIPER' }]);
+  const kits = {};
+  for (const [id] of list) kits[id] = () => ({ skill: { kind: 'ammo', ammo: 14 } });
+  const L = 10;
+  for (const n of [3, 6]) {
+    const ids = [...list.slice(0, n).map((x) => x[0]), 'none_a'];
+    const h = makeBattle({ defs: defsOf(list), kits, units: lineup(ids), bonds: { lateranoShip: bondOn(n, L, null, [3, 6]) } });
+    h.step(1);
+    const a = h.unit('l0_a'), b = h.unit('l1_a'), x = h.unit('none_a');
+    a.skill.activate('test', { free: true });
+    x.skill.activate('test', { free: true });
+    assert.equal(a.skill.ammoLeft, Math.floor(14 * (1 + 0.05 + 0.015 * L)));
+    assert.equal(x.skill.ammoLeft, 14, 'non-member unchanged');
+    for (let i = 0; i < 3; i++) a.skill.onAttackPerformed([], null);
+    if (n === 3) {
+      close(b.s.atk, 1000);
+    } else {
+      close(b.s.atk, 1000 * (1 + 3 * 0.04));
+      close(x.s.atk, 1000, 1e-9, 'non-member gets nothing');
+      for (let k = 0; k < 80; k++) {
+        if (!a.skill.active) a.skill.activate('test', { free: true });
+        a.skill.onAttackPerformed([], null);
+      }
+      close(b.s.atk, 1000 * 3, 1e-6, 'cap +200 %');
+    }
+    checkInvariants(h.b);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 阿戈尔
+
+test('阿戈尔: HP ×(1.35+0.01L); devour chain (left first): 5000 phys, base ATK + block, layers = devoured tiers', () => {
+  const list = [
+    ['g1_a', ['egirShip']], ['g2_a', ['egirShip']], ['g3_a', ['egirShip']],
+    ['fod_a', ['preciShip'], { tier: 4, stats: { atk: 700, blockCnt: 3, maxHp: 20000, def: 900 } }],
+    ['tok_free', ['preciShip'], { tier: 6 }],
+  ];
+  const L = 10;
+  // g1 (10,3) → g2 (10,4) → fodder (10,5); g3 (11,3) has an empty front tile
+  const units = [{ chessId: 'g1_a', row: 10, col: 3 }, { chessId: 'g2_a', row: 10, col: 4 }, { chessId: 'fod_a', row: 10, col: 5 }, { chessId: 'g3_a', row: 11, col: 3 }];
+  const h = makeBattle({ defs: defsOf(list), units, bonds: { egirShip: bondOn(3, L, null, [3, 5]) }, hooks: ['damaged', 'layerGain'], captureNoisy: true });
+  h.step(1);
+  const [g1, g2, g3, f] = ['g1_a', 'g2_a', 'g3_a', 'fod_a'].map((id) => h.unit(id));
+  const devours = tagged(h, 'bond:egir:devour');
+  assert.deepEqual(devours.map((c) => [c.source.defId, c.target.defId]), [['g1_a', 'g2_a'], ['g1_a', 'fod_a'], ['g2_a', 'fod_a']]);
+  for (const c of devours) close(c.amount, 5000);
+  close(g1.s.atk, 1000 + 1000 + 700, 1e-6, 'g1 gains g2 + fodder base ATK');
+  close(g2.s.atk, 1000 + 700);
+  close(g3.s.atk, 1000);
+  assert.equal(g1.s.blockCnt, 2 + 2 + 3);
+  assert.equal(g2.s.blockCnt, 2 + 3);
+  close(f.hp, 20000 - 10000, 1e-6, '流失: DEF 900 ignored');
+  const Lnow = L + 1 + 4;                                   // g2 tier 1 + fodder tier 4, once each
+  assert.equal(h.b.getPlayer('p1').bonds.egirShip.layers, Lnow);
+  h.step(2);
+  close(g3.s.maxHp, 10000 * (1 + 0.35 + 0.01 * Lnow), 1e-6, 'HP multiplier follows the devour layers');
+  close(f.s.maxHp, 20000, 1e-9, 'non-member HP unchanged');
+  checkInvariants(h.b);
+});
+
+test('阿戈尔 devour: 流失 ignores the marker’s damage bonuses and the target’s shields; a dead marker’s marks are cancelled; kill → marker', () => {
+  const list = [
+    ['g1_a', ['egirShip', 'kjeragShip']], ['g2_a', ['egirShip'], { stats: { maxHp: 3000 } }], ['g3_a', ['egirShip']],
+    ['fod_a', ['preciShip'], { tier: 2, stats: { maxHp: 20000, def: 500 } }],
+  ];
+  // g1 (10,3) → g2 (10,4, 3000×1.35 HP: dies to the first mark) → fodder (10,5); g3 elsewhere
+  const units = [{ chessId: 'g1_a', row: 10, col: 3 }, { chessId: 'g2_a', row: 10, col: 4 }, { chessId: 'fod_a', row: 10, col: 5 }, { chessId: 'g3_a', row: 12, col: 3 }];
+  const h = makeBattle({
+    defs: defsOf(list), units, hooks: ['damaged', 'kill'], captureNoisy: true,
+    bonds: { egirShip: bondOn(3, 0, null, [3, 5]), kjeragShip: bondOn(3, 0, null, [3, 6]) },   // g1 deals ×1.25
+    setup: (b) => b.on('battleStart', () => b.addBuff(b.allyUnits.find((u) => u.defId === 'fod_a'), { key: 'test:shield', shield: 3000 }), { priority: 100 }),
+  });
+  h.step(1);
+  const [g1, g2, f] = ['g1_a', 'g2_a', 'fod_a'].map((id) => h.unit(id));
+  close(g1.s.dmgDealtMul, 1.25, 1e-9, '谢拉格 bonus present');
+  assert.ok(!g2.alive, 'g2 devoured');
+  assert.ok(h.hooksOf('kill').some((c) => c.victim === g2 && c.killer === g1), 'kill credited to the marker');
+  const dv = tagged(h, 'bond:egir:devour');
+  assert.deepEqual(dv.map((c) => [c.source.defId, c.target.defId]), [['g1_a', 'g2_a'], ['g1_a', 'fod_a']], 'g2’s own mark on the fodder is cancelled');
+  close(f.hp, 20000 - 5000, 1e-6, 'exactly 5000: no ×1.25, no DEF, shield untouched');
+  assert.equal(f.buffs.find((b) => b.key === 'test:shield')?.shield, 3000);
+  close(g1.s.atk, 1000 + 1000 + 1000, 1e-6, 'the base ATK of everything it marked stays');
+  assert.equal(h.b.getPlayer('p1').bonds.egirShip.layers, 1 + 2, 'layers = tiers of the devoured units');
+  checkInvariants(h.b);
+});
+
+test('阿戈尔 devour order: left first, then top first (row 0 is the bottom: the top board row is 12)', () => {
+  const list = [['g1_a', ['egirShip']], ['g2_a', ['egirShip']], ['g3_a', ['egirShip']], ['fod_a', ['preciShip']]];
+  const units = [
+    { uid: 'low', chessId: 'g1_a', row: 9, col: 3 }, { uid: 'f_low', chessId: 'fod_a', row: 9, col: 4 },
+    { uid: 'high', chessId: 'g2_a', row: 12, col: 3 }, { uid: 'f_high', chessId: 'fod_a', row: 12, col: 4 },
+    { uid: 'right', chessId: 'g3_a', row: 11, col: 2 }, { uid: 'f_right', chessId: 'fod_a', row: 11, col: 3 },
+  ];
+  const h = makeBattle({ defs: defsOf(list), units, bonds: { egirShip: bondOn(3, 0, null, [3, 5]) }, hooks: ['damaged'], captureNoisy: true });
+  h.step(1);
+  assert.deepEqual(tagged(h, 'bond:egir:devour').map((c) => c.source.uid), ['right', 'high', 'low'], 'col 2 first, then row 12 before row 9');
+  checkInvariants(h.b);
+});
+
+test('阿戈尔 5: the first 3 members knocked out for the first time redeploy at once (death + deploy fire); a second knock-out is final', () => {
+  const list = [];
+  for (let i = 0; i < 5; i++) list.push([`g${i}_a`, ['egirShip'], { skill: { spCost: 30, initSp: 5, duration: 10 } }]);
+  // one per row pair so nobody devours anybody
+  const units = list.map(([id], i) => ({ chessId: id, row: 9 + (i % 4), col: 3 + 2 * Math.floor(i / 4) }));
+  const h = makeBattle({ defs: defsOf(list), units, bonds: { egirShip: bondOn(5, 0, null, [3, 5]) }, hooks: ['death', 'deploy'] });
+  h.step(1);
+  const us = list.map(([id]) => h.unit(id));
+  const kill = (u) => h.b.dealDamage(null, u, { amount: 1e9, type: 'true' });
+  us[0].skill.gainSp(20, 'test');
+  const tiles = us.map((u) => [u.tileR, u.tileC]);
+  for (let i = 0; i < 3; i++) {
+    const redeploys = () => h.hooksOf('deploy').filter((c) => c.unit === us[i] && !c.initial).length;
+    const before = redeploys();
+    kill(us[i]);
+    assert.ok(us[i].alive && us[i].deployed, `member ${i} back on the field`);
+    close(us[i].hp, us[i].s.maxHp);
+    assert.deepEqual([us[i].tileR, us[i].tileC], tiles[i], 'same tile');
+    assert.ok(h.hooksOf('death').some((c) => c.unit === us[i] && c.reason === 'killed'), 'it was knocked out (被击倒 triggers fire)');
+    assert.equal(redeploys(), before + 1, `member ${i} redeployed`);
+  }
+  assert.equal(us[0].skill.sp, 5, 'a redeploy restarts from the initial SP');
+  kill(us[3]);
+  assert.ok(!us[3].alive, 'the 4th dies');
+  kill(us[0]);
+  assert.ok(!us[0].alive, 'second knock-out is final');
+  checkInvariants(h.b);
+  // a member moved off its board tile (突袭 / relocation) revives where it was knocked out; later redeploys go home
+  const hm = makeBattle({ defs: defsOf(list), units, bonds: { egirShip: bondOn(5, 0, null, [3, 5]) }, hooks: [] });
+  hm.step(1);
+  const m = hm.unit('g4_a');
+  const home = [m.homeR, m.homeC];
+  assert.ok(hm.b.relocate(m, 12, 8));
+  hm.b.dealDamage(null, m, { amount: 1e9, type: 'true' });
+  assert.ok(m.alive && m.tileR === 12 && m.tileC === 8, 'revived on the tile it fell on');
+  assert.deepEqual([m.homeR, m.homeC], home, 'home unchanged');
+  checkInvariants(hm.b);
+  // 3 members: no revive
+  const h3 = makeBattle({ defs: defsOf(list), units: units.slice(0, 3), bonds: { egirShip: bondOn(3, 0, null, [3, 5]) } });
+  h3.step(1);
+  h3.b.dealDamage(null, h3.unit('g0_a'), { amount: 1e9, type: 'true' });
+  assert.ok(!h3.unit('g0_a').alive);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 叙拉古
+
+test('叙拉古: after each deployment ASPD +(25+0.8L) for 32+0.4L s; 3 members: no stealth', () => {
+  const list = [['r0_a', ['siracusaShip']], ['r1_a', ['siracusaShip']], ['r2_a', ['siracusaShip']], ['none_a', ['preciShip']]];
+  const L = 10;
+  const h = makeBattle({ defs: defsOf(list), units: lineup(list.map((x) => x[0])), bonds: { siracusaShip: bondOn(3, L, null, [3, 6]) } });
+  h.step(1);
+  const a = h.unit('r0_a');
+  assert.equal(a.s.aspd, 100 + 25 + 0.8 * L);
+  assert.equal(h.unit('none_a').s.aspd, 100);
+  assert.ok(!a.s.flags.stealth);
+  h.run(32 + 0.4 * L - h.b.time - 0.1);
+  assert.equal(a.s.aspd, 100 + 25 + 0.8 * L);
+  h.run(0.3);
+  assert.equal(a.s.aspd, 100);
+  // redeploy → again
+  h.b.retreat(a);
+  a.respawnAt = 0;
+  h.b.redeploy(a);
+  assert.equal(a.s.aspd, 100 + 25 + 0.8 * L);
+  checkInvariants(h.b);
+});
+
+test('叙拉古 6: 隐匿 for the same time; attacks while hidden / ≤ 10 s after proc (PRD) 5000+50L true damage + fear 3 s', () => {
+  close(prdConstant(0.03), 0.00139, 2e-5);
+  const list = [];
+  for (let i = 0; i < 6; i++) list.push([`r${i}_a`, ['siracusaShip']]);
+  const L = 20;
+  const h = makeBattle({
+    defs: defsOf(list), units: lineup(list.map((x) => x[0])), enemies: [{ key: 'e_dummy', pos: [12, 9] }],
+    bonds: { siracusaShip: bondOn(6, L, null, [3, 6]) }, autoFinish: false, timeLimit: 300, hooks: ['damaged', 'statusApplied'], captureNoisy: true,
+  });
+  h.step(1);
+  const a = h.unit('r0_a');
+  const e = h.enemies()[0];
+  assert.ok(a.s.flags.stealth, 'stealthed after deploy');
+  const attackN = (n) => { for (let i = 0; i < n; i++) h.b.dealDamage(a, e, { amount: 1, type: 'phys', isAttack: true }); };
+  attackN(750);                                              // PRD guarantees a proc within ⌈1/C⌉ attempts
+  const procs = tagged(h, 'bond:siracusa');
+  assert.ok(procs.length >= 1 && procs.length < 60, `procs ${procs.length}`);
+  for (const p of procs) close(p.amount, 5000 + 50 * L);
+  assert.ok(h.hooksOf('statusApplied').some((c) => c.status === 'fear' && c.target === e && Math.abs(c.duration - 3) < 1e-9));
+  const dur = 32 + 0.4 * L;
+  h.run(dur + 5 - h.b.time);
+  assert.ok(!a.s.flags.stealth, 'stealth over');
+  const before = tagged(h, 'bond:siracusa').length;
+  attackN(750);
+  assert.ok(tagged(h, 'bond:siracusa').length > before, 'still procs within 10 s after stealth');
+  h.run(6);
+  const after = tagged(h, 'bond:siracusa').length;
+  attackN(750);
+  assert.equal(tagged(h, 'bond:siracusa').length, after, 'no proc after the 10 s window');
+  checkInvariants(h.b);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 卡西米尔
+
+test('卡西米尔: every own deployment (initial included) → members ATK +20 %, capped at 50+1×L %', () => {
+  const list = [['z0_a', ['kazimierzShip']], ['z1_a', ['kazimierzShip']], ['z2_a', ['kazimierzShip']], ['none_a', ['preciShip']], ['none2_a', ['preciShip']]];
+  for (const [L, expect] of [[20, 0.7], [100, 1.0]]) {
+    const h = makeBattle({ defs: defsOf(list), units: lineup(list.map((x) => x[0])), bonds: { kazimierzShip: bondOn(3, L, null, [3, 6]) } });
+    h.step(1);
+    close(h.unit('z0_a').s.atk, 1000 * (1 + expect), 1e-6, `L=${L}`);
+    close(h.unit('none_a').s.atk, 1000);
+    if (L === 100) {
+      const x = h.unit('none_a');
+      h.b.retreat(x);
+      h.b.redeploy(x);
+      close(h.unit('z1_a').s.atk, 1000 * 2.2, 1e-6, 'a redeploy adds +20 %');
+    }
+    checkInvariants(h.b);
+  }
+});
+
+test('卡西米尔 6: blocking members pulse 120 % ATK true damage + 0.1 s stun every 2 s; non-blocking attacks add 30 % ATK true', () => {
+  const list = [];
+  for (let i = 0; i < 6; i++) list.push([`z${i}_a`, ['kazimierzShip']]);
+  const walker = enemyRec({ key: 'e_walk', hp: 1e8, speed: 1, atk: 0 });
+  const defs = defsOf(list);
+  defs.enemies.e_walk = walker;
+  // z0 on the walking lane (row 9); the others on row 12 behind the lane's end
+  const units = list.map(([id], i) => ({ chessId: id, row: i === 0 ? 9 : 12, col: i === 0 ? 5 : 2 + i }));
+  const h = makeBattle({
+    defs, units, enemies: [{ key: 'e_walk', route: 0 }], bonds: { kazimierzShip: bondOn(6, 0, null, [3, 6]) },
+    autoFinish: false, timeLimit: 120, hooks: ['damaged', 'statusApplied'], captureNoisy: true,
+  });
+  const z0 = h.unit('z0_a'), z1 = h.unit('z1_a');
+  assert.ok(h.runUntil(() => z0.blocking.length > 0, 30), 'blocked');
+  const t0 = h.b.time;
+  h.run(4.1);
+  const pulses = tagged(h, 'bond:kazimierz').filter((c) => c.source === z0 && c.dmg.isSplash && c.t >= t0);
+  assert.ok(pulses.length >= 1 && pulses.length <= 3, `pulses ${pulses.length}`);
+  close(pulses[0].amount, 1.2 * z0.s.atk, 1e-6);
+  assert.ok(h.hooksOf('statusApplied').some((c) => c.status === 'stun' && c.source === z0 && Math.abs(c.duration - 0.1) < 1e-9));
+  const onHitExtra = tagged(h, 'bond:kazimierz').filter((c) => c.source === z0 && !c.dmg.isSplash && c.t >= t0);
+  assert.equal(onHitExtra.length, 0, 'no on-hit true damage while blocking');
+  // z1 does not block: its attacks add 30 % ATK true damage
+  const e = h.enemies()[0];
+  const n0 = tagged(h, 'bond:kazimierz').filter((c) => c.source === z1).length;
+  h.b.dealDamage(z1, e, { amount: 100, type: 'phys', isAttack: true });
+  const extra = tagged(h, 'bond:kazimierz').filter((c) => c.source === z1);
+  assert.equal(extra.length, n0 + 1);
+  close(extra[extra.length - 1].amount, 0.3 * z1.s.atk, 1e-6);
+  checkInvariants(h.b);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// cross-cutting
+
+test('inactive core bonds do nothing (layers alone are not enough)', () => {
+  const bonds = ['yanShip', 'sargonShip', 'victoriaShip', 'kjeragShip', 'lateranoShip', 'egirShip', 'siracusaShip', 'kazimierzShip'];
+  const list = [['all_a', bonds], ['all2_a', bonds]];
+  const h = makeBattle({
+    defs: defsOf(list), units: [{ chessId: 'all_a', row: 10, col: 3, items: ['test_item_a'] }, { chessId: 'all2_a', row: 10, col: 4 }],
+    bonds: Object.fromEntries(bonds.map((b) => [b, { count: 2, active: false, tier: 0, layers: 50 }])),
+    hooks: ['damaged'], captureNoisy: true,
+  });
+  h.step(1);
+  const u = h.unit('all_a');
+  assert.deepEqual(u.buffs.filter((b) => b.key.startsWith('bond:')).map((b) => b.key), []);
+  close(u.s.atk, 1000);
+  assert.equal(tagged(h, 'bond:egir:devour').length, 0);
+  assert.ok(!reached(h.b, 'p1', 'yanShip', 0));
+  checkInvariants(h.b);
+});
+
+test('变形同构体 makes the wearer a member; 6-tier thresholds also read the tier index', () => {
+  const list = [['y0_a', ['yanShip']], ['y1_a', ['yanShip']], ['x_a', ['preciShip']]];
+  const h = makeBattle({
+    defs: defsOf(list),
+    units: [{ chessId: 'y0_a', row: 10, col: 3 }, { chessId: 'y1_a', row: 10, col: 4 }, { chessId: 'x_a', row: 10, col: 5, items: ['chess_item_6_09_e_a', 'chess_item_3_04_e_a'] }],
+    bonds: { yanShip: { active: true, tier: 1, layers: 0 } },
+  });
+  h.step(1);
+  assert.ok(buffOf(h.unit('x_a'), 'bond:yan'), 'granted member');
+  assert.ok(reached(h.b, 'p1', 'yanShip', 3) && !reached(h.b, 'p1', 'yanShip', 6));
+  checkInvariants(h.b);
+});
+
+test('boss field, two players: bonds only touch their owner’s operators; devour layers are disabled there', () => {
+  const list = [['g0_a', ['egirShip', 'yanShip']], ['g1_a', ['egirShip', 'yanShip']], ['g2_a', ['egirShip', 'yanShip']], ['fod_a', ['preciShip'], { tier: 3 }]];
+  const lineupFor = (pid) => [
+    { uid: `${pid}1`, chessId: 'g0_a', row: 10, col: 3 }, { uid: `${pid}2`, chessId: 'g1_a', row: 10, col: 4 },
+    { uid: `${pid}3`, chessId: 'g2_a', row: 11, col: 3 }, { uid: `${pid}4`, chessId: 'fod_a', row: 11, col: 4 },
+  ];
+  const on = { yanShip: bondOn(3, 0), egirShip: bondOn(3, 0, null, [3, 5]) };
+  const h = makeBattle({
+    kind: 'boss', defs: defsOf(list), hooks: ['damaged', 'layerGain'], captureNoisy: true,
+    players: [
+      { playerId: 'p1', seat: 0, side: 'L', colOffset: 0, units: lineupFor('p1'), bonds: on, bandId: null, playerEffects: [] },
+      { playerId: 'p2', seat: 1, side: 'R', colOffset: 0, units: lineupFor('p2'), bonds: {}, bandId: null, playerEffects: [] },
+    ],
+  });
+  h.step(1);
+  const mine = h.unit('p12'), theirs = h.unit('p22');       // g1: devoured by g0, devours nothing itself
+  close(mine.s.atk, 1000 * 1.23, 1e-6);
+  close(theirs.s.atk, 1000);
+  close(h.unit('p23').s.maxHp, 10000);
+  const dv = tagged(h, 'bond:egir:devour');
+  assert.ok(dv.length >= 1 && dv.every((c) => c.source.ownerId === 'p1' && c.target.ownerId === 'p1'));
+  assert.equal(h.b.getPlayer('p1').bonds.egirShip.layers, 0, 'no IN_BATTLE layers in a boss field');
+  assert.equal(h.b.errors.length, 0, JSON.stringify(h.b.errors));
+  checkInvariants(h.b);
+});

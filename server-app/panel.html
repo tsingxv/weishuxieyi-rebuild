@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+  <title>开服面板 · 卫戍协议：盟约</title>
+  <style>
+    :root { color-scheme: dark; --ok: #4ed8af; --warn: #f6a329; --err: #e8695f; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px 18px 18px;
+      background: radial-gradient(120% 90% at 50% 0%, #16201d 0%, #0c0f0e 62%);
+      color: #d8e3de;
+      font: 13.5px/1.55 "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+      user-select: none;
+    }
+    h1 { margin: 0; font-size: 17px; letter-spacing: .5px; color: var(--ok); }
+    h2 { margin: 0 0 8px; font-size: 12.5px; letter-spacing: 1px; color: #8fb3a7; font-weight: 600; text-transform: uppercase; }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .head .sub { font-size: 12px; color: #8b9a94; margin-top: 2px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+      font-size: 12.5px; font-weight: 600; border: 1px solid #2f9c7c; color: #b7f0dd; background: #12241e; white-space: nowrap;
+    }
+    .pill.down { border-color: #7a3b36; color: #f0bdb7; background: #241413; }
+    .pill.busy { border-color: #8a6a2c; color: #f3d9a6; background: #241d10; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .banner {
+      display: flex; gap: 9px; align-items: flex-start; padding: 9px 12px; border-radius: 8px; margin-bottom: 12px;
+      border: 1px solid #8a6a2c; background: #1d1809; color: #f3d9a6; font-size: 12.5px;
+    }
+    .banner b { color: #ffd89b; }
+    .err {
+      padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; white-space: pre-wrap;
+      border: 1px solid #7a3b36; background: #201211; color: #f0bdb7; font-size: 12.5px;
+    }
+    .err.hidden, .hidden { display: none !important; }
+    .card { border: 1px solid #23302c; background: #101614; border-radius: 10px; padding: 11px 12px; margin-bottom: 11px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+    .stat { border: 1px solid #22302b; background: #0d1211; border-radius: 8px; padding: 7px 9px; }
+    .stat .k { font-size: 11px; color: #7d8c86; letter-spacing: .3px; }
+    .stat .v { font-size: 17px; font-variant-numeric: tabular-nums; color: #e8f2ee; }
+    .addr { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px dashed #1e2a26; }
+    .addr:last-child { border-bottom: 0; padding-bottom: 0; }
+    .addr:first-of-type { padding-top: 0; }
+    .addr .val {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font: 13px/1.5 ui-monospace, Consolas, monospace; color: #cdf3e7; user-select: text;
+    }
+    .addr .tag { font-size: 11px; color: #7d8c86; white-space: nowrap; }
+    .addr .tag.local { color: #6fd7bb; }
+    .addr .tag.warn { color: var(--warn); }
+    button {
+      font: inherit; padding: 6px 11px; border-radius: 7px; cursor: pointer;
+      border: 1px solid #2c3a35; background: #182220; color: #d8e3de; white-space: nowrap;
+    }
+    button:hover:not(:disabled) { border-color: var(--ok); color: #eafff8; }
+    button:disabled { opacity: .45; cursor: default; }
+    button.primary { background: #1f6f59; border-color: #2f9c7c; color: #eafff8; font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #26866c; }
+    button.danger { border-color: #6f3330; color: #f0bdb7; }
+    button.danger:hover:not(:disabled) { border-color: #b25049; color: #ffd8d3; }
+    button.done { border-color: var(--ok); color: var(--ok); }
+    pre.share {
+      margin: 0; padding: 10px; border-radius: 8px; border: 1px solid #1e2a26; background: #0b100f;
+      color: #cdf3e7; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+      max-height: 168px; overflow: auto; user-select: text;
+    }
+    pre.cmd {
+      margin: 7px 0 0; padding: 8px 10px; border-radius: 7px; border: 1px solid #1e2a26; background: #0b100f;
+      color: #b7cfc7; font: 11.5px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; user-select: text;
+    }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .row.between { justify-content: space-between; }
+    input[type=text] {
+      width: 96px; padding: 6px 9px; border-radius: 7px; border: 1px solid #2c3a35; background: #0b100f; color: #e8f2ee;
+      font: 13px/1.4 ui-monospace, Consolas, monospace; text-transform: uppercase; letter-spacing: 2px; text-align: center;
+    }
+    input[type=text]:focus { outline: none; border-color: var(--ok); box-shadow: 0 0 0 3px rgba(78,216,175,.14); }
+    .hint { font-size: 12px; color: #7d8c86; }
+    .hint code { color: #b7cfc7; background: #131a18; padding: 1px 5px; border-radius: 4px; }
+    .hint b { color: #cdf3e7; font-weight: 600; }
+    ul.hints { margin: 0; padding-left: 18px; font-size: 12px; color: #8b9a94; }
+    ul.hints li { margin: 3px 0; }
+    ul.hints b { color: #cdf3e7; }
+    .toast {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      padding: 7px 14px; border-radius: 999px; background: #1f6f59; color: #eafff8; font-size: 12.5px; font-weight: 600;
+      opacity: 0; transition: opacity .18s ease; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .toast.bad { background: #7a3b36; color: #ffd8d3; }
+    footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+    .meta { font-size: 11px; color: #6b7a74; }
+    .meta code { color: #8b9a94; user-select: text; }
+    a { color: #6fd7bb; }
+  </style>
+</head>
+<body>
+  <div class="head">
+    <div>
+      <h1>开服面板</h1>
+      <div class="sub" id="sub">卫戍协议：盟约 · 独立服务器</div>
+    </div>
+    <span class="pill busy" id="pill"><i class="dot"></i><span id="pillText">正在启动…</span></span>
+  </div>
+
+  <div class="banner">
+    <span>⚠️</span>
+    <div>
+      <b>关掉这个窗口 = 停止开服。</b>窗口开着，朋友才能连进来；最小化没问题，别关。
+      想让服务器在后台长期运行、开机自启：用 <code>npm start</code> + <code>scripts\install-service-windows.ps1</code>（见 docs/DEPLOY.md §1.4）。
+    </div>
+  </div>
+
+  <div class="err hidden" id="err"></div>
+
+  <div class="card">
+    <h2>运行状态</h2>
+    <div class="stats">
+      <div class="stat"><div class="k">已运行</div><div class="v" id="sUptime">—</div></div>
+      <div class="stat"><div class="k">在线连接</div><div class="v" id="sSockets">0</div></div>
+      <div class="stat"><div class="k">房间</div><div class="v" id="sRooms">0</div></div>
+      <div class="stat"><div class="k">对局中</div><div class="v" id="sMatches">0</div></div>
+      <div class="stat"><div class="k">大厅人数</div><div class="v" id="sHall">0</div></div>
+      <div class="stat"><div class="k">席位（真人/电脑）</div><div class="v" id="sSeats">0 / 0</div></div>
+    </div>
+    <div class="row between" style="margin-top:10px">
+      <span class="hint" id="listenHint">监听地址：—</span>
+      <button id="openBrowser" class="primary" type="button">在浏览器里玩（本机）</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>发给朋友的地址（点「复制」）</h2>
+    <div id="addrs"></div>
+    <div class="hint" id="addrHint" style="margin-top:9px">
+      同一路由器下用<b>局域网</b>那条；不在同一网络就用 <b>Radmin VPN</b> 那条（双方都要装 Radmin VPN 并加入同一个网络组）。
+      端口默认 3000，朋友那边不用写端口也行？—— 需要写，形如 <code>192.168.1.2:3000</code>。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>房间邀请链接（建房后发给朋友）</h2>
+    <div class="row">
+      <span class="hint">房间密钥</span>
+      <input id="roomCode" type="text" maxlength="8" placeholder="AB3F" spellcheck="false" autocomplete="off" />
+      <button id="makeInvite" type="button">生成链接</button>
+      <button id="copyInvite" type="button" disabled>复制链接</button>
+      <span class="hint" id="inviteHint">房间里是 4 位密钥；打开链接的人会自动进入房间。</span>
+    </div>
+    <pre class="share hidden" id="inviteOut" style="margin-top:9px"></pre>
+  </div>
+
+  <div class="card">
+    <h2>一键复制全部（直接粘到聊天里）</h2>
+    <pre class="share" id="shareText">正在读取…</pre>
+    <div class="row between" style="margin-top:9px">
+      <span class="hint">含所有可用地址、邀请链接、防火墙提示。</span>
+      <button id="copyAll" class="primary" type="button">一键复制全部</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>朋友连不上？先看这里</h2>
+    <ul class="hints">
+      <li>第一次开服 Windows 会弹「安全中心警报」：勾<b>专用网络</b> → <b>允许访问</b>。没弹或点错了，用<b>管理员</b> PowerShell 执行下面这条（添加防火墙规则）：</li>
+    </ul>
+    <pre class="cmd" id="fwCmd">netsh advfirewall firewall add rule name="Stronghold Protocol" dir=in action=allow protocol=TCP localport=3000 profile=private,domain</pre>
+    <div class="row" style="margin-top:8px">
+      <button id="copyFw" type="button">复制防火墙命令</button>
+      <span class="hint">网络若被识别为「公用网络」，Windows 会拦截入站：管理员 PowerShell 执行
+        <code>Set-NetConnectionProfile -InterfaceAlias "以太网" -NetworkCategory Private</code></span>
+    </div>
+    <ul class="hints" style="margin-top:9px">
+      <li>朋友要用 <b>局域网 / Radmin 地址</b>，不能用 <code>localhost</code>（那是他自己那台机器）。</li>
+      <li>访客 Wi-Fi 常开「AP 隔离」，同一 Wi-Fi 也连不上：换路由器 / 用 Radmin VPN。</li>
+      <li>主机 IP 变了地址就失效：在路由器里给小主机绑定固定 IP（DHCP 地址保留）。</li>
+      <li>进阶：公网联机（cloudflared / Tailscale）、开机自启、排错见 <b>docs\DEPLOY.md</b>。</li>
+      <li>服务器<b>无存档</b>：重启会结束进行中的对局。</li>
+    </ul>
+  </div>
+
+  <footer>
+    <span class="meta" id="meta">—</span>
+    <span class="row">
+      <button id="openLog" type="button">打开日志文件夹</button>
+      <button id="stop" class="danger" type="button">停止服务器</button>
+      <button id="quit" class="danger" type="button">退出（停止并关闭）</button>
+    </span>
+  </footer>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const api = window.spServer;
+    let last = null;
+    let toastTimer = 0;
+
+    function toast(text, bad) {
+      const el = $('toast');
+      el.textContent = text;
+      el.className = 'toast show' + (bad ? ' bad' : '');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { el.className = 'toast'; }, 1600);
+    }
+
+    async function copy(text, label) {
+      const res = await api.copy(text);
+      if (res && res.ok) toast('已复制' + (label ? '：' + label : ''));
+      else toast('复制失败：' + ((res && res.error) || '未知错误'), true);
+    }
+
+    /** Mark a button as "已复制" for a moment, so the click is visibly acknowledged in the list too. */
+    function flash(btn) {
+      const old = btn.textContent;
+      btn.textContent = '已复制 ✓';
+      btn.classList.add('done');
+      setTimeout(() => { btn.textContent = old; btn.classList.remove('done'); }, 1200);
+    }
+
+    function human(sec) {
+      if (sec == null) return '—';
+      const s = Math.max(0, Math.round(sec));
+      if (s < 60) return s + ' 秒';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + ' 分 ' + (s % 60) + ' 秒';
+      return Math.floor(m / 60) + ' 时 ' + (m % 60) + ' 分';
+    }
+
+    /** One shareable address row: value + kind tag + 复制 (and 打开, which goes out to the browser). */
+    function addrRow({ url, tag, local, warn }) {
+      const row = document.createElement('div');
+      row.className = 'addr';
+      const val = document.createElement('span');
+      val.className = 'val';
+      val.textContent = url;
+      const t = document.createElement('span');
+      t.className = 'tag' + (local ? ' local' : '') + (warn ? ' warn' : '');
+      t.textContent = tag;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = '复制';
+      b.addEventListener('click', () => { copy(url, url); flash(b); });
+      const o = document.createElement('button');
+      o.type = 'button';
+      o.textContent = '打开';
+      o.addEventListener('click', () => window.__openUrl(url));
+      row.append(val, t, b, o);
+      return row;
+    }
+
+    function renderAddrs(state) {
+      const box = $('addrs');
+      box.textContent = '';
+      const port = state.port || 3000;
+      box.append(addrRow({ url: 'http://localhost:' + port + '/', tag: '本机（房主自己玩）', local: true }));
+      const targets = state.targets || [];
+      for (const t of targets) {
+        const warn = t.kind === 'virtual' || t.kind === 'linklocal';
+        box.append(addrRow({ url: t.url, tag: t.label + (t.iface ? ' · ' + t.iface : ''), warn }));
+      }
+      if (!targets.length) {
+        const p = document.createElement('div');
+        p.className = 'hint';
+        p.textContent = '没有检测到局域网 / VPN 网卡：朋友暂时连不上（检查网线 / Wi-Fi，或装 Radmin VPN）。';
+        box.append(p);
+      }
+    }
+
+    function render(state) {
+      last = state;
+      const running = !!state.running;
+      const pill = $('pill');
+      pill.className = 'pill' + (running ? '' : state.starting ? ' busy' : ' down');
+      $('pillText').textContent = running ? '运行中' : state.starting ? '正在启动…' : state.stopping ? '正在停止…' : '已停止';
+
+      const err = $('err');
+      if (state.error) { err.textContent = state.error; err.classList.remove('hidden'); }
+      else err.classList.add('hidden');
+
+      $('sUptime').textContent = human(state.uptimeSec);
+      $('sSockets').textContent = state.sockets ?? 0;
+      $('sRooms').textContent = state.rooms ?? 0;
+      $('sMatches').textContent = state.matches ?? 0;
+      $('sHall').textContent = state.hallMembers ?? 0;
+      $('sSeats').textContent = (state.humans ?? 0) + ' / ' + (state.bots ?? 0);
+
+      $('listenHint').textContent = running
+        ? '监听 ' + state.host + ':' + state.port + ' · 本机 ' + state.localUrl
+        : '未监听（服务器没有运行）';
+
+      const rooms = state.roomsList || [];
+      const roomText = rooms.length
+        ? ' · 房间 ' + rooms.map((r) => r.code + (r.inMatch ? '(对局中)' : '(' + r.humans + '人)')).join('、')
+        : '';
+      $('sub').textContent = '卫戍协议：盟约 · 独立服务器 v' + state.version + ' · 协议 ' + state.protocol + roomText;
+
+      renderAddrs(state);
+
+      $('shareText').textContent = state.shareText || '（暂无分享信息）';
+      $('fwCmd').textContent = state.firewallCommand;
+      $('copyAll').disabled = !state.shareText;
+
+      if (state.invite && !$('inviteOut').classList.contains('hidden') && !$('roomCode').value) {
+        $('inviteOut').textContent = state.invite;
+      }
+
+      const btns = [['stop', running], ['openBrowser', running], ['makeInvite', !!state.port]];
+      for (const [id, on] of btns) $(id).disabled = !on;
+
+      $('meta').textContent = 'v' + state.version + ' · Electron ' + state.electron + ' · 日志 ';
+      const code = document.createElement('code');
+      code.textContent = state.logFile;
+      $('meta').append(code);
+    }
+
+    async function refresh() {
+      try { render(await api.state()); } catch (e) { /* window closing */ }
+    }
+
+    // ---------------------------------------------------------------- actions
+    $('copyAll').addEventListener('click', async (e) => {
+      await copy(last && last.shareText, '全部分享信息');
+      flash(e.currentTarget);
+    });
+    $('openBrowser').addEventListener('click', () => api.openBrowser());
+    $('openLog').addEventListener('click', () => api.openFolder());
+    $('stop').addEventListener('click', async () => {
+      $('stop').disabled = true;
+      await api.stop();
+      await refresh();
+    });
+    $('quit').addEventListener('click', async () => {
+      await api.quit();
+    });
+    $('copyFw').addEventListener('click', async (e) => {
+      await copy(last ? last.firewallCommand : '', '防火墙命令');
+      flash(e.currentTarget);
+    });
+
+    $('makeInvite').addEventListener('click', async () => {
+      const res = await api.invite($('roomCode').value);
+      const out = $('inviteOut');
+      out.classList.remove('hidden');
+      if (!res.ok) { out.textContent = '⚠️ ' + res.error; $('copyInvite').disabled = true; return; }
+      $('roomCode').value = res.code;
+      out.textContent = res.text;
+      $('copyInvite').disabled = false;
+      $('inviteHint').textContent = '把这条链接发给朋友，他打开就进房间 ' + res.code + '。';
+    });
+    $('copyInvite').addEventListener('click', async (e) => {
+      const text = $('inviteOut').textContent || '';
+      if (!text || text.startsWith('⚠️')) return;
+      await copy(text, '邀请链接');
+      flash(e.currentTarget);
+    });
+    $('roomCode').addEventListener('input', () => {
+      $('roomCode').value = $('roomCode').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    $('roomCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('makeInvite').click(); });
+
+    // ---------------------------------------------------------------- renderer-local helpers
+    // The panel must not navigate: links go to the main process. Kept minimal on purpose.
+    window.__openUrl = (url) => {
+      try { window.open(url, '_blank'); } catch { /* deny handler opens it externally */ }
+    };
+
+    /**
+     * Everything a human would read off the panel, as data — used by `--panel-dump=` to check the UI on a
+     * machine with no interactive session (see server-app/main.js). Also handy when a host reports a bug.
+     *
+     * `exercise: true` additionally drives the real buttons/IPC (invite generation, clipboard, share text)
+     * and reports what they returned — a rendering dump alone would not prove the wiring works.
+     */
+    window.__panelDump = async ({ exercise = false } = {}) => {
+      const snapshot = {
+        pill: $('pillText').textContent,
+        subtitle: $('sub').textContent,
+        error: { text: $('err').textContent, hidden: $('err').classList.contains('hidden') },
+        stats: {
+          uptime: $('sUptime').textContent,
+          sockets: $('sSockets').textContent,
+          rooms: $('sRooms').textContent,
+          matches: $('sMatches').textContent,
+          hall: $('sHall').textContent,
+          seats: $('sSeats').textContent,
+        },
+        listen: $('listenHint').textContent,
+        addresses: [...document.querySelectorAll('#addrs .addr')].map((row) => ({
+          url: row.querySelector('.val').textContent,
+          tag: row.querySelector('.tag').textContent,
+        })),
+        emptyAddressNotice: !!$('addrs').querySelector('.hint'),
+        shareText: $('shareText').textContent,
+        firewallCommand: $('fwCmd').textContent,
+        buttons: [...document.querySelectorAll('button')].map((b) => `${b.id || '(row)'}: ${b.textContent}${b.disabled ? ' [disabled]' : ''}`),
+        warning: document.querySelector('.banner').innerText.replace(/\s+/g, ' ').trim(),
+        hints: [...document.querySelectorAll('ul.hints li')].map((li) => li.innerText.replace(/\s+/g, ' ').trim()),
+        meta: $('meta').innerText,
+        visibleTextLength: document.body.innerText.length,
+      };
+      if (!exercise) return snapshot;
+
+      const results = {};
+      // the clipboard round trip through the main process (a sandboxed renderer has no clipboard module)
+      const copied = await api.copy('烟测剪贴板');
+      results.copy = copied;
+      // invite generation for a room code, exactly as the host would type it
+      $('roomCode').value = 'ab3f';
+      $('roomCode').dispatchEvent(new Event('input'));
+      $('makeInvite').click();
+      await new Promise((r) => setTimeout(r, 250));
+      results.invite = { output: $('inviteOut').textContent, copyEnabled: !$('copyInvite').disabled, hint: $('inviteHint').textContent };
+      // a bad code must be refused with a readable reason, not silently accepted
+      $('roomCode').value = '!!';
+      $('roomCode').dispatchEvent(new Event('input'));
+      $('makeInvite').click();
+      await new Promise((r) => setTimeout(r, 250));
+      results.badInvite = { output: $('inviteOut').textContent, copyEnabled: !$('copyInvite').disabled };
+      // stop / start, so the panel's recovery path is verified too
+      const stopped = await api.stop();
+      await new Promise((r) => setTimeout(r, 250));
+      results.afterStop = { running: stopped.running, pill: $('pillText').textContent, error: $('err').textContent };
+      const started = await api.start();
+      await new Promise((r) => setTimeout(r, 400));
+      results.afterStart = { running: started.running, pill: $('pillText').textContent, port: started.port };
+      return { ...snapshot, exercise: results };
+    };
+
+    api.onState(render);
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>
