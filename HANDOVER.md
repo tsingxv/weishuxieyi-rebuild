@@ -60,8 +60,8 @@ wire 协议的权威说明在 `shared/protocol.js` 的注释块（搜「hall / �
 | 产物 | 命令 | 输出 | 给谁 |
 |---|---|---|---|
 | **Release 整合包**（解压即玩） | `npm run build-release -- --zip` | `dist/Stronghold-Protocol-v0.1.0.zip`（约 435 MB，解压后约 811 MB） | 只想开服 + 浏览器玩的人 |
-| **桌面客户端 exe** | `npm run build-client` | `dist/Stronghold-Protocol-win64/`（697 MB） | 朋友：不想开浏览器、想本地加载素材 |
-| **独立服务器 exe** | `npm run build-server` | `dist/Stronghold-Protocol-Server-win64/`（697 MB） | 房主：不想在终端里 `npm start` |
+| **桌面客户端 exe** | `npm run build-client` | `dist/weishuxieyi-client/`（697 MB） | 朋友：不想开浏览器、想本地加载素材 |
+| **独立服务器 exe** | `npm run build-server` | `dist/weishuxieyi-server/`（697 MB） | 房主：不想在终端里 `npm start` |
 
 三个脚本都**只复制本机已有的内容，不联网下载**，结束前自检（素材/依赖缺失会报错返回非 0）。
 所以打包前必须先在一个**完整可跑**的 checkout 上执行过 `npm ci` + `npm run setup`。
@@ -129,8 +129,8 @@ cd node_modules\electron ; node install.js ; cd ..\..
 
 ## 8. Git 状态
 
-- 分支 `main`，6 个提交，520 个跟踪文件，工作区干净（截至本文档更新时）。
-- 远程 `origin` = <https://github.com/tsingxv/weishuxieyi-rebuild>，已推送；**v0.1.0 整合包已发布到 Releases**。
+- 分支 `main`，7 个提交，520 个跟踪文件，工作区干净（截至本文档更新时）。
+- 远程 `origin` = <https://github.com/tsingxv/weishuxieyi-rebuild>，已推送；**v0.1.0 三个包（整合包 / weishuxieyi-client / weishuxieyi-server）均已发布到 Releases**。
 - 提交身份是仓库级配置：`tsingxv <262500451+tsingxv@users.noreply.github.com>`（换人维护时改 `user.name` / `user.email` 再提交即可）。
 - 仓库不含美术/音频素材（gitignore）；重打整合包用 `build-release --zip`（脚本强制用 Windows 自带 `System32\tar.exe` 出真 zip，并做 PK 头自检防 GNU tar 假 zip）。
 - **本机 git 直连 GitHub 的坑**（DSH 网络环境）：schannel 报 `CRYPT_E_NO_REVOCATION_CHECK`、openssl 后端缺根证书。解法是把 Windows 证书库导出成 PEM 后：

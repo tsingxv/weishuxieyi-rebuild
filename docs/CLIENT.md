@@ -60,7 +60,7 @@ StrongholdProtocol.exe
 
 ## 2. 目录与产物
 
-构建产物（默认 `dist/Stronghold-Protocol-win64/`）：
+构建产物（默认 `dist/weishuxieyi-client/`）：
 
 ```
 StrongholdProtocol.exe          重命名后的 electron.exe
@@ -105,7 +105,7 @@ node scripts/build-client.mjs --out=E:\sp-build                # 换输出目录
 | 选项 | 说明 |
 |---|---|
 | `--default-server=host:port` | 写进 `client/build-info.json`，第一次运行时预填并加进候选列表；不填则让玩家手输 |
-| `--zip` | 用 `tar.exe` 打 `Stronghold-Protocol-win64.zip`（约 600 MB，需要几分钟） |
+| `--zip` | 用 `tar.exe` 打 `weishuxieyi-client.zip`（约 600 MB，需要几分钟） |
 | `--out=<dir>` | 输出根目录，默认 `dist/`。**本机要直接把产物打到能运行的位置时用它**，例如 `--out=E:\Stronghold-Protocol-Client`（原因见 §7） |
 | `--no-clean` | 不删除已有产物目录（增量覆盖，慎用） |
 
@@ -136,7 +136,7 @@ node scripts/smoke-client.mjs --run-from=E:\_sp-client-run
 （`server/index.js` 的 `startServer()` 在主进程里直接跑），打开一个控制面板窗口。
 
 ```powershell
-node scripts/build-server.mjs        # → dist/Stronghold-Protocol-Server-win64/
+node scripts/build-server.mjs        # → dist/weishuxieyi-server/
 node scripts/smoke-server.mjs --run-from=E:\_sp-server-run
 ```
 
@@ -152,7 +152,7 @@ node scripts/smoke-server.mjs --run-from=E:\_sp-server-run
   要长期后台运行、开机自启，仍然用 `npm start` + `scripts/install-service-windows.ps1`（见
   [DEPLOY.md](DEPLOY.md) §1.4），面板里也写了这条。
 - 端口被占用（EADDRINUSE）时面板不会消失，而是提示 `启动服务器.cmd --port 3001` 换端口。
-- 日志：`%APPDATA%\stronghold-protocol-server\server.log`。
+- 日志：`%APPDATA%\weishuxieyi-server\server.log`。
 
 服务端 exe 与客户端 exe 打的是**同一份游戏载荷**（public/data/shared/server + ws），所以代码更新后
 两个都要重新打包；只换素材时同样直接覆盖各自 `resources/app/public/assets`。
@@ -160,7 +160,7 @@ node scripts/smoke-server.mjs --run-from=E:\_sp-server-run
 ## 4. 和朋友一起玩
 
 1. 房主照旧开服务器（`npm start`，或 `scripts\start-windows.bat`），跑着的窗口别关。
-2. 房主把整个 `Stronghold-Protocol-win64` 文件夹压缩后发给朋友（QQ / 网盘均可，约 600 MB）。
+2. 房主把整个 `weishuxieyi-client` 文件夹压缩后发给朋友（QQ / 网盘均可，约 600 MB）。
 3. 朋友解压到**任意普通目录**（例如 `D:\Games\`、桌面），双击 `启动游戏.cmd`。
 4. 第一次运行会弹出「服务器设置」：
    - 同一路由器：填房主的局域网地址，如 `192.168.1.2:3000`；
@@ -224,11 +224,11 @@ ASCII：`.cmd` 按控制台 OEM 代码页解析，写中文会变成乱码（中
 | 在 `E:\tools\workingspace\...` 里运行就闪退 | **DSH 给这个工作区加了低完整性 ACL，Chromium 的沙箱在里面起不来**；同一个 exe 放到 `C:\`、`D:\`、桌面都能正常跑。把客户端文件夹拷出工作区再运行，或者直接 `node scripts/build-client.mjs --out=E:\Stronghold-Protocol-Client` 生成到工作区之外。 |
 | 设置窗口「测试连接」超时 | 网络不通：确认房主开着服务器、地址正确、房主防火墙放行 3000 端口（专用网络）、Radmin 双方在同一网络组。 |
 | 「测试连接」报 HTTP 404 | 地址不是游戏服务器（比如填成了别的服务 / 反向代理没转发根路径）。 |
-| 能连上但卡在标题页 | 看 `%APPDATA%\stronghold-protocol-client\client.log`（菜单「帮助 → 打开日志文件夹」）；房主那边 `healthz` 的 `sockets` 数应该 ≥1。 |
+| 能连上但卡在标题页 | 看 `%APPDATA%\weishuxieyi-client\client.log`（菜单「帮助 → 打开日志文件夹」）；房主那边 `healthz` 的 `sockets` 数应该 ≥1。 |
 | 字体和网页版略有差异 | 客户端离线，Google 字体请求被拦截，中文回退到系统字体（`public/fonts` 里的 Bender / Novecento 仍然生效）。 |
 | 端口 41888 被占用 | 客户端会自动换到下一个空闲端口，并把结果记进配置文件（换端口会让页面来源变化，曾经的昵称/会话令牌作废，需重输昵称）。 |
 
-配置文件：`%APPDATA%\stronghold-protocol-client\client-config.json`（服务器地址、本地端口、窗口位置、
+配置文件：`%APPDATA%\weishuxieyi-client\client-config.json`（服务器地址、本地端口、窗口位置、
 历史地址）。删掉它等于恢复出厂设置。
 
 ## 8. 边界与合规

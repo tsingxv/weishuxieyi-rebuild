@@ -17,7 +17,7 @@
 // Child output goes to files, never pipes.
 //
 // Usage:
-//   node scripts/smoke-server.mjs [--app=dist/Stronghold-Protocol-Server-win64]
+//   node scripts/smoke-server.mjs [--app=dist/weishuxieyi-server]
 //                                 [--run-from=E:\_sp-server-run] [--timeout=45] [--port=0] [--keep]
 //
 // `--run-from` copies the app there and runs it from that copy. It exists because a folder inside a
@@ -39,7 +39,7 @@ const value = (name, fallback = '') => {
   return hit ? hit.slice(name.length + 3) : fallback;
 };
 const timeoutSec = Number(value('timeout', '45')) || 45;
-const buildDir = path.resolve(ROOT, value('app', path.join('dist', 'Stronghold-Protocol-Server-win64')));
+const buildDir = path.resolve(ROOT, value('app', path.join('dist', 'weishuxieyi-server')));
 const runFrom = value('run-from', '');
 const forcedPort = Number(value('port', '0')) || 0;
 const productExe = path.join(buildDir, 'StrongholdProtocolServer.exe');

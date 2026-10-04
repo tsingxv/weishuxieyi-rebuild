@@ -3,7 +3,7 @@
 // The client is the same web game plus an Electron shell (see client/main.js), and it deliberately keeps
 // the repository layout inside `resources/app`:
 //
-//   dist/Stronghold-Protocol-win64/
+//   dist/weishuxieyi-client/
 //     StrongholdProtocol.exe          (renamed electron.exe)
 //     <electron runtime files>
 //     resources/app/
@@ -28,7 +28,7 @@ import { spawnSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PRODUCT = 'StrongholdProtocol';
-const APP_NAME = 'Stronghold-Protocol-win64';
+const APP_NAME = 'weishuxieyi-client';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -121,7 +121,7 @@ for (const dep of RUNTIME_DEPS) {
 // No `productName`: Electron derives `app.getPath('userData')` from it, and an ASCII directory name is
 // friendlier than %APPDATA%\卫戍协议：盟约. The window title carries the Chinese name instead.
 const appPkg = {
-  name: 'stronghold-protocol-client',
+  name: 'weishuxieyi-client',
   version: pkg.version,
   private: true,
   description: '卫戍协议：盟约 桌面客户端（非官方同人作品）',
@@ -188,7 +188,7 @@ fs.writeFileSync(path.join(target, '使用说明.txt'), `\ufeff${[
   '         1. 确认房主那边已经开着服务器（npm start / 启动脚本）。',
   '         2. 用“测试连接”看提示：超时=网络不通，HTTP 404=地址不是游戏服务器。',
   '         3. 房主电脑的防火墙要放行 3000 端口（专用网络）。',
-  '         4. 日志：%APPDATA%\\stronghold-protocol-client\\client.log（菜单“帮助→打开日志文件夹”）。',
+  '         4. 日志：%APPDATA%\\weishuxieyi-client\\client.log（菜单“帮助→打开日志文件夹”）。',
   '',
   '【素材与数据】贴图、音频、游戏数据、战斗逻辑全部打包在本文件夹内（resources\\app），',
   '         离线也能进标题界面，只有与房主的对局数据通过 3000 端口的 WebSocket 同步。',
@@ -207,12 +207,24 @@ if (wantZip) {
   const zip = path.join(outRoot, `${APP_NAME}.zip`);
   if (fs.existsSync(zip)) fs.rmSync(zip);
   console.log(`  zip → ${path.relative(ROOT, zip)} (this takes a few minutes for ~600 MB)…`);
-  const r = spawnSync('tar.exe', ['-a', '-c', '-f', zip, '-C', outRoot, APP_NAME], { stdio: 'inherit' });
+  // Same rule as build-release.mjs: Windows' own tar.exe (bsdtar) writes a real .zip; a Git-bash PATH may
+  // shadow it with GNU tar (plain tar under a .zip name — caught by the PK check below).
+  const tarBin = process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+  const r = spawnSync(tarBin, ['-a', '-c', '-f', zip, '-C', outRoot, APP_NAME], { stdio: 'inherit' });
   if (r.error || r.status !== 0) {
     console.error(`  ! zip failed (${r.error?.message || `exit ${r.status}`}) — the folder above is still usable`);
     process.exitCode = 1;
   } else {
-    console.log(`  ✓ ${path.relative(ROOT, zip)}  (${mb(fs.statSync(zip).size)})`);
+    const fd = fs.openSync(zip, 'r');
+    const magic = Buffer.alloc(2);
+    fs.readSync(fd, magic, 0, 2, 0);
+    fs.closeSync(fd);
+    if (magic.toString('latin1') !== 'PK') {
+      console.error(`  ! ${path.basename(tarBin)} did not write a real zip — the folder above is still usable`);
+      process.exitCode = 1;
+    } else {
+      console.log(`  ✓ ${path.relative(ROOT, zip)}  (${mb(fs.statSync(zip).size)})`);
+    }
   }
 }
 
