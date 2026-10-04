@@ -726,7 +726,7 @@ test('determinism: shared defs are frozen — a kit that mutates its blackboard 
   assert.ok(def.stats.atk < 5000 && !def.rangeGrid.some(([r, c]) => r === 0 && c === 9));
 });
 
-test('performance: heavy 2-player boss field (18 ops, ~130 enemies alive) averages < 0.5 ms/tick', () => {
+test('performance: heavy 2-player boss field (18 ops, ~130 enemies alive) averages < 0.5 ms/tick (1.0 on CI)', () => {
   const P = realPools();
   if (!ds.getStage('act2autochess_m01') || !ds.getWave('act1autochess_h07_01')) return;
   const keys = ['enemy_1422_lrsldr', 'enemy_1427_lrnazg', 'enemy_1005_yokai', 'enemy_1042_frostd', 'enemy_1425_lrcmra', 'enemy_1040_bombd'].filter((k) => ds.getEnemy(k));
@@ -746,6 +746,8 @@ test('performance: heavy 2-player boss field (18 ops, ~130 enemies alive) averag
   console.log(`bench boss field: ${n} ticks, peak ${peak} alive, ${b.allyUnits.length} allies, avg ${(avg * 1000).toFixed(1)} µs/tick`);
   assert.ok(peak >= 100, `peak ${peak}`);
   assert.equal(b.allyUnits.filter((u) => u.kind === 'op').length, 18);
-  assert.ok(avg < 0.5, `avg ${avg} ms/tick`);
+  // shared CI runners are slower than a dev box: 0.5 ms locally, 1.0 with head-room for neighbour noise
+  const budget = process.env.CI ? 1 : 0.5;
+  assert.ok(avg < budget, `avg ${avg} ms/tick (budget ${budget})`);
   assert.equal(b.errors.length, 0);
 });

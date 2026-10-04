@@ -99,8 +99,8 @@ English summary: [below](#english).
 ### 方式二：从源码运行
 
 ```bash
-git clone https://github.com/tsingxv/Stronghold-Protocol-Covenant.git
-cd Stronghold-Protocol-Covenant
+git clone https://github.com/tsingxv/weishuxieyi-rebuild.git
+cd weishuxieyi-rebuild
 npm install        # 安装依赖（postinstall 会把 pixi / preact / three 复制到 public/vendor）
 npm run setup      # 检查环境，并从公开镜像下载约 250 MB 美术 / 音频（可中断，再次运行会续传）
 npm start          # 启动服务器：http://localhost:3000

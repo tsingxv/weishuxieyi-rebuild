@@ -130,7 +130,9 @@ test('loopback server serves the game payload with the server\u2019s own handler
 
     // root-relative asset URLs the game needs offline
     assert.equal((await request(port, '/js/main.js')).status, 200);
-    assert.equal((await request(port, '/fonts/fonts.css')).status, 200);
+    // public/fonts comes with the downloaded (gitignored) assets: absent on a fresh clone → 404
+    const fontsCss = path.join(ROOT, 'public', 'fonts', 'fonts.css');
+    assert.equal((await request(port, '/fonts/fonts.css')).status, fs.existsSync(fontsCss) ? 200 : 404, 'present → served, absent (fresh clone) → 404');
     assert.match((await request(port, '/data/config.json')).headers['content-type'], /application\/json/);
 
     // the browser stand-in for server/data.js, and the simulation as ES modules only

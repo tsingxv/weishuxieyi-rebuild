@@ -83,9 +83,8 @@ wire 协议的权威说明在 `shared/protocol.js` 的注释块（搜「hall / �
 | `npm run smoke-server -- --run-from=E:\_sp-server-run` | 打包后的服务器 exe |
 | `node scripts/probe-hall.mjs <port>` | 对已运行的服务器发一遍大厅协议 |
 
-> ⚠️ **已知非问题**：全量测试时 `test/sim/robustness.test.js` 的性能断言（0.5 ms/tick）
-> 偶发超阈值——它只依赖 `server/sim/*`（与本会话新增的模块无关），空闲机器上单独运行会通过。
-> 是并发跑测试时的 CPU 争用，不是回归。
+> ⚠️ **性能断言与 CI**：`test/sim/robustness.test.js` 的 0.5 ms/tick 断言在本地全量并发跑时偶发超阈值
+> （CPU 争用，非回归；空闲机器单独运行会通过）。CI 上预算自动放宽到 1.0 ms/tick，避免共享 runner 噪声。
 
 ---
 
@@ -130,8 +129,8 @@ cd node_modules\electron ; node install.js ; cd ..\..
 
 ## 8. Git 状态
 
-- 分支 `main`，4 个提交，520 个跟踪文件，工作区干净（截至本文档更新时）。
-- 远程 `origin` = <https://github.com/tsingxv/Stronghold-Protocol-Covenant>，已推送。
+- 分支 `main`，5 个提交，520 个跟踪文件，工作区干净（截至本文档更新时）。
+- 远程 `origin` = <https://github.com/tsingxv/weishuxieyi-rebuild>，已推送。
 - 提交身份是仓库级配置：`tsingxv <262500451+tsingxv@users.noreply.github.com>`（换人维护时改 `user.name` / `user.email` 再提交即可）。
 - 仓库不含美术/音频素材（gitignore），**Releases 上的整合包需要用上面的 `build-release` 自己打**。
 - **本机 git 直连 GitHub 的坑**（DSH 网络环境）：schannel 报 `CRYPT_E_NO_REVOCATION_CHECK`、openssl 后端缺根证书。解法是把 Windows 证书库导出成 PEM 后：
