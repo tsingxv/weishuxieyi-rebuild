@@ -130,19 +130,16 @@ cd node_modules\electron ; node install.js ; cd ..\..
 
 ## 8. Git 状态
 
-- 分支 `main`，2 个提交，519 个跟踪文件，工作区干净（截至本文档撰写时）。
-- **未配置远程**。发布时：
-  ```powershell
-  git remote add origin https://github.com/<你>/<仓库>.git
-  git push -u origin main
-  ```
-- 仓库级 git 身份是占位的（`Stronghold-Protocol contributors` / noreply 邮箱）。想让提交署自己的名字：
-  ```powershell
-  git config user.name "你的名字"
-  git config user.email "你的邮箱"
-  git commit --amend --reset-author --no-edit
-  ```
+- 分支 `main`，4 个提交，520 个跟踪文件，工作区干净（截至本文档更新时）。
+- 远程 `origin` = <https://github.com/tsingxv/Stronghold-Protocol-Covenant>，已推送。
+- 提交身份是仓库级配置：`tsingxv <262500451+tsingxv@users.noreply.github.com>`（换人维护时改 `user.name` / `user.email` 再提交即可）。
 - 仓库不含美术/音频素材（gitignore），**Releases 上的整合包需要用上面的 `build-release` 自己打**。
+- **本机 git 直连 GitHub 的坑**（DSH 网络环境）：schannel 报 `CRYPT_E_NO_REVOCATION_CHECK`、openssl 后端缺根证书。解法是把 Windows 证书库导出成 PEM 后：
+  ```powershell
+  git config http.sslBackend openssl
+  git config http.sslCAInfo "C:\path\to\win-ca.pem"
+  ```
+  （本仓库已配置好；普通网络环境的机器不需要。）
 
 ---
 
