@@ -75,8 +75,10 @@ export const emptyMatch = () => ({ public: null, private: null, field: null, res
 /**
  * Fresh (empty) 大厅 slice: the server-wide roster/open rooms/recent results/chat (server/hall.js).
  * `entered` mirrors whether this client has subscribed (`hall.enter`), `at` is the last update time.
+ * `whispers` is a short mirror of the private lines this page session saw — the thread itself lives in
+ * localStorage (ui/whispers.js) so a conversation survives a restart.
  */
-export const emptyHall = () => ({ entered: false, roster: [], total: 0, rooms: [], roomsTotal: 0, results: [], chat: [], serverNow: 0, at: 0 });
+export const emptyHall = () => ({ entered: false, roster: [], total: 0, rooms: [], roomsTotal: 0, results: [], chat: [], whispers: [], serverNow: 0, at: 0 });
 
 /** Initial app state (exported for tests and resets). */
 export const initialState = Object.freeze({

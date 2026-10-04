@@ -51,6 +51,7 @@ import { installDeviceSupport } from './ui/device.js';
 import { LoadoutHost } from './screens/loadout.js';
 import { installLoadoutSync } from './ui/loadoutSync.js';
 import { loadProfile, saveProfile, bumpVisit } from './ui/profile.js';
+import { loadThreads, appendLine, saveThreads } from './ui/whispers.js';
 
 const RESTORE_GRACE_MS = 1500;
 const JOIN_DELAY_MS = 350;
@@ -58,6 +59,8 @@ const TICKER_KEEP = 20;
 const EMOTE_KEEP = 20;
 /** Chat lines kept client-side; the server replays at most HALL_CHAT_KEEP, this is the same bound. */
 const HALL_CHAT_KEEP = 50;
+/** 私聊 frames mirrored into the store (the thread itself lives in localStorage). */
+const HALL_WHISPER_KEEP = 30;
 
 const SCREENS = { title: TitleScreen, lobby: LobbyScreen, hall: HallScreen, room: RoomScreen, game: GameScreen };
 
@@ -247,12 +250,24 @@ function wireNet() {
     if (!msg || !msg.line || typeof msg.line.text !== 'string') return;
     store.set((s) => ({ hall: { ...s.hall, chat: [...s.hall.chat, msg.line].slice(-HALL_CHAT_KEEP), at: Date.now() } }));
   });
+  // 私聊: the server relays the line to its two parties and stores nothing, so the thread is kept on the
+  // client (ui/whispers.js). A small store mirror lets the 大厅 screen pick frames up while unmounted too.
+  net.on('hall.whisper', (msg) => {
+    if (!msg || !msg.line || typeof msg.line.text !== 'string') return;
+    store.set((s) => ({ hall: { ...s.hall, whispers: [...(s.hall.whispers || []), msg.line].slice(-HALL_WHISPER_KEEP), at: Date.now() } }));
+  });
 
   // Entering (title → lobby) while already online also needs the deep-link join.
   store.subscribe((s, prev) => {
     if (s.session.entered && !prev.session.entered) schedulePendingJoin();
     // in a room (co-op or solo, also a resumed one) a match is near: its data starts downloading
     if (s.room && !prev.room) warmGameData();
+    // 私聊: persist any private line this page session saw (ui/whispers.js owns the threads)
+    const n = (s.hall?.whispers || []).length;
+    if (n > (prev.hall?.whispers || []).length) {
+      const line = s.hall.whispers[n - 1];
+      if (line) saveThreads(appendLine(loadThreads(), line));
+    }
   });
 }
 

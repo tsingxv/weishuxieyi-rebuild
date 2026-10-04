@@ -12,7 +12,7 @@
 // match always outranks the hall in the router.
 
 import { useEffect, useRef, useState } from '../../vendor/hooks.module.js';
-import { CHAT_MAX_LEN, MAX_SEATS, ROOM_CODE_LEN, ERR } from '../../../shared/constants.js';
+import { CHAT_MAX_LEN, WHISPER_MAX_LEN, MAX_SEATS, ROOM_CODE_LEN, ERR } from '../../../shared/constants.js';
 import { html, Button, Icon, MicroLabel, Panel, TextField, AvatarFrame, DifficultyTag, PingPill, Spinner, useTicker, doctorNo } from '../ui/components.js';
 import { toast, toastError } from '../ui/toasts.js';
 import { GuideButton } from '../ui/guide.js';
@@ -21,6 +21,7 @@ import { net } from '../net.js';
 import { store, useStore, shallowEqual, loadPref, savePref, serverNow, openHall, closeHall } from '../store.js';
 import { copyText, inviteLink } from './room.js';
 import { getConfig, useData } from '../data.js';
+import { loadThreads, appendLine, clearThread, unreadOf, unreadTotal, markRead } from '../ui/whispers.js';
 
 /** Where the chat draft lives between visits (a half-typed line must not be lost on a screen switch). */
 const K_CHAT_DRAFT = 'hall.chatDraft';
@@ -161,7 +162,7 @@ function SectionLabel({ idx, title, micro }) {
   return html`<div class="section-label"><span class="section-label__idx num">${idx}</span>${title}<${MicroLabel}>${micro}<//></div>`;
 }
 
-function RosterRow({ entry, room, isMe, busy, onCopy, onJoin }) {
+function RosterRow({ entry, room, isMe, busy, onCopy, onJoin, onWhisper, unread }) {
   const state = joinState(room);
   const code = entry.roomCode;
   return html`<li class=${`hall-who${isMe ? ' is-me' : ''}${entry.inMatch ? ' is-busy' : ''}`}>
@@ -175,6 +176,10 @@ function RosterRow({ entry, room, isMe, busy, onCopy, onJoin }) {
         ? html`<button type="button" class="hall-code hall-code--sm num" title="复制同盟密钥 ${code}" onClick=${() => onCopy(code)}>${code}</button>`
         : html`<span class="hall-who__idle t-dim">闲暇中</span>`}
       ${entry.inMatch ? html`<span class="hall-who__live" title="正在模拟中"><${Icon} name="sword" />模拟中</span>` : null}
+      ${!isMe
+        ? html`<button type="button" class=${`hall-who__talk${unread ? ' has-unread' : ''}`} title=${unread ? `私聊 · ${unread} 条未读` : '私聊'}
+            onClick=${() => onWhisper(entry)}><${Icon} name="edit" />${unread ? html`<b class="num">${unread}</b>` : null}<//>`
+        : null}
       ${code && state === 'open'
         ? html`<${Button} size="sm" variant="ghost" icon="users" loading=${busy === `join:${code}`} onClick=${() => onJoin(code)}>加入<//>`
         : null}
@@ -224,6 +229,47 @@ function ChatPanel({ chat, myId, draft, busy, logRef, onDraft, onSend, onCopyCod
     <div class="hall-chat__foot">
       <span class="t-dim">所有人可见 · 注意不要泄露隐私</span>
       <button type="button" class="hall-link" onClick=${onCopyCode}>复制我的密钥</button>
+    </div>
+  <//>`;
+}
+
+/**
+ * 私聊面板: one conversation with one other player.
+ *
+ * Stored locally (ui/whispers.js) because the server relays and forgets. `lines` are newest-last; the
+ * log auto-scrolls like the public channel. 清空 removes the thread for me only (the other side keeps
+ * their own copy — there is no server state to delete).
+ */
+function WhisperPanel({ peer, lines, myId, draft, busy, logRef, onDraft, onSend, onClose, onClear }) {
+  return html`<${Panel} class="hall-panel hall-whisper" pad=${false}>
+    <header class="hall-whisper__head">
+      <${AvatarFrame} size="sm" name=${peer.name} seat=${0} self=${false} />
+      <div class="hall-whisper__who">
+        <span class="hall-whisper__name">${peer.name || '博士'}</span>
+        <${MicroLabel}>PRIVATE · DOCTOR #${doctorNo(peer.playerId)}<//>
+      </div>
+      <${Button} variant="ghost" size="sm" icon="close" onClick=${onClose} title="关闭私聊">收起<//>
+    </header>
+    <div class="hall-chat__log hall-whisper__log" ref=${logRef} role="log" aria-live="polite" aria-label="私聊">
+      ${lines.length
+        ? lines.map((l) => {
+            const mine = l.fromId === myId;
+            return html`<div class=${`hall-line${mine ? ' is-me is-private' : ' is-private'}`} key=${l.id}>
+              <span class="hall-line__time num">${fmtClock(l.at)}</span>
+              <span class="hall-line__name">${mine ? '我' : l.fromName || '博士'}</span>
+              <span class="hall-line__text">${l.text}</span>
+            </div>`;
+          })
+        : html`<p class="hall-empty t-dim">和 ${peer.name || '博士'} 的私聊是点对点的，服务器不保存内容。</p>`}
+    </div>
+    <div class="hall-chat__form">
+      <${TextField} size="md" value=${draft} placeholder=${`私聊 ${peer.name || '博士'}（回车发送）`} maxLength=${WHISPER_MAX_LEN}
+        onInput=${onDraft} onEnter=${onSend} />
+      <${Button} variant="primary" size="md" icon="chevrons" loading=${busy === 'whisper'} disabled=${!chatPayload(draft)} onClick=${onSend}>发送<//>
+    </div>
+    <div class="hall-chat__foot">
+      <span class="t-dim">仅双方可见 · 服务器不留存 · 保存在本机</span>
+      <button type="button" class="hall-link" onClick=${onClear}>清空这个对话</button>
     </div>
   <//>`;
 }
@@ -311,6 +357,60 @@ export function HallScreen() {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [chat.length]);
+
+  // ---- 私聊 state ---------------------------------------------------------------------------
+  // Threads live in localStorage (ui/whispers.js); the component holds the open thread id in a ref-like
+  // state so switching between 公共频道 and 私聊 (and back) keeps the conversation.
+  const [threads, setThreads] = useState(() => loadThreads());
+  const [peerId, setPeerId] = useState(null);
+  const [wDraft, setWDraft] = useState('');
+  const wLogRef = useRef(null);
+  const peer = roster.find((e) => e.playerId === peerId) || null;
+  const threadKey = peerId && me.playerId ? [me.playerId, peerId].sort().join('\u0000') : null;
+  const wLines = (threadKey && threads[threadKey]) || [];
+  const totalUnread = unreadTotal(threads, me.playerId);
+
+  useEffect(() => {
+    const el = wLogRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [wLines.length, peerId]);
+
+  const openWhisper = (entry) => {
+    setPeerId(entry.playerId);
+    // opening the thread clears its unread badge
+    setThreads((m) => {
+      const last = (m[[me.playerId, entry.playerId].sort().join('\u0000')] || []).at(-1);
+      return last ? markRead(m, me.playerId, entry.playerId, last.id) : m;
+    });
+  };
+
+  /** A hall.whisper frame arrived: store it (both directions) and open the thread if it is hidden. */
+  const onWhisperLine = (line) => {
+    if (!line || typeof line.text !== 'string') return;
+    setThreads((m) => appendLine(m, line));
+    const other = line.fromId === me.playerId ? line.toId : line.fromId;
+    // an incoming line while its thread is closed raises the badge instead of yanking the screen
+    if (other !== peerId && line.fromId !== me.playerId) toast(`${line.fromName}: ${line.text.slice(0, 40)}`, 'info');
+  };
+
+  const sendWhisper = () => {
+    const text = chatPayload(wDraft);
+    if (!text || !peer) return;
+    if (!online) { toast('尚未连接到服务器，请稍候', 'warn'); return; }
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy('whisper');
+    net.request('hall.whisper', { to: peer.playerId, text }).then(() => {
+      if (alive.current) setWDraft('');
+    }).catch((err) => {
+      if (err?.code === ERR.RATE) toast('发得太快了，稍等一下', 'warn');
+      else if (err?.code === ERR.BAD_MSG) toastError(err);
+      else toastError(err);
+    }).finally(() => {
+      inFlight.current = false;
+      if (alive.current) setBusy(null);
+    });
+  };
 
   const run = async (kind, fn) => {
     if (inFlight.current) return;
@@ -407,7 +507,8 @@ export function HallScreen() {
           ${roster.length
             ? html`<ul class="hall-list">
                 ${roster.map((e) => html`<${RosterRow} key=${e.playerId} entry=${e} room=${roomByCode(rooms, e.roomCode)}
-                  isMe=${e.playerId === me.playerId} busy=${busy} onCopy=${copyCode} onJoin=${join} />`)}
+                  isMe=${e.playerId === me.playerId} busy=${busy} onCopy=${copyCode} onJoin=${join}
+                  onWhisper=${openWhisper} unread=${unreadOf(threads, me.playerId, e.playerId, me.playerId)} />`)}
               </ul>`
             : html`<p class="hall-empty t-dim">
                 ${online
@@ -427,9 +528,22 @@ export function HallScreen() {
             : html`<p class="hall-empty t-dim">${online ? '当前没有开放的同盟。' : '正在读取服务器状态…'}</p>`}
         <//>
 
-        <${SectionLabel} idx="03" title="频道" micro="ALLIANCE CHANNEL" />
-        <${ChatPanel} chat=${chat} myId=${me.playerId} draft=${draft} busy=${busy} logRef=${logRef}
-          onDraft=${onDraft} onSend=${sendChat} onCopyCode=${copyMine} />
+        <${SectionLabel} idx="03" title=${peer ? '私聊' : '频道'} micro=${peer ? 'PRIVATE' : 'ALLIANCE CHANNEL'} />
+        ${peer
+          ? html`<${WhisperPanel} peer=${peer} lines=${wLines} myId=${me.playerId} draft=${wDraft} busy=${busy}
+              logRef=${wLogRef} onDraft=${(v) => setWDraft(String(v ?? '').slice(0, WHISPER_MAX_LEN))}
+              onSend=${sendWhisper} onClose=${() => setPeerId(null)}
+              onClear=${() => { setThreads((m) => clearThread(m, me.playerId, peer.playerId)); toast('已清空本地私聊记录', 'info'); }} />`
+          : html`<${ChatPanel} chat=${chat} myId=${me.playerId} draft=${draft} busy=${busy} logRef=${logRef}
+              onDraft=${onDraft} onSend=${sendChat} onCopyCode=${copyMine} />`}
+        ${!peer
+          ? html`<div class="hall-whisper-hint">
+              <${Button} variant="ghost" size="sm" icon="edit" disabled=${totalUnread === 0}
+                onClick=${() => { const withUnread = roster.find((e) => unreadOf(threads, me.playerId, e.playerId, me.playerId) > 0); if (withUnread) openWhisper(withUnread); }}>
+                私聊${totalUnread ? html`（${totalUnread} 条未读）` : ''}<//>
+              <span class="t-dim">点在线博士旁的 ✎ 开始私聊</span>
+            </div>`
+          : null}
       </section>
 
       <section class="hall-col hall-col--record">

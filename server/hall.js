@@ -17,7 +17,7 @@
 // Restarting the server clears all of it by design; the client keeps its own permanent history
 // (public/js/ui/history.js) so a player's own 战绩 survives.
 
-import { CHAT_COOLDOWN_MS, CHAT_MAX_LEN, HALL_CHAT_KEEP, HALL_RESULTS_KEEP, HALL_ROOMS_MAX, HALL_ROSTER_MAX, ERR } from '../shared/constants.js';
+import { CHAT_COOLDOWN_MS, CHAT_MAX_LEN, HALL_CHAT_KEEP, HALL_RESULTS_KEEP, HALL_ROOMS_MAX, HALL_ROSTER_MAX, WHISPER_BURST, WHISPER_MAX_LEN, WHISPER_WINDOW_MS, ERR } from '../shared/constants.js';
 import { encode, isDroppable, sendRaw, sendSession } from './net.js';
 
 /** How long roster changes are coalesced before one `hall.roster` broadcast (ms). */
@@ -114,6 +114,8 @@ export class Hall {
     this.seq = 0;
     /** @type {Map<string, number>} last accepted chat time per playerId (cooldown) */
     this.chatAt = new Map();
+    /** @type {Map<string, number[]>} recent private-line times per playerId (burst budget) */
+    this.whisperAt = new Map();
     /** @type {NodeJS.Timeout | null} coalesced roster broadcast */
     this.rosterTimer = null;
   }
@@ -222,6 +224,58 @@ export class Hall {
     return OK;
   }
 
+  /**
+   * 私聊: relay one private line from `session` to the session named in `msg.to`.
+   *
+   * Deliberately different from the public channel:
+   *   * the server **stores nothing** — the line goes to the two sockets and is forgotten, so a restart
+   *     or a later `hall.enter` can never replay someone's private conversation;
+   *   * the recipient does **not** have to be in the hall (`hall.enter`), only connected — hiding from
+   *     the public channel should not also cut off a friend's direct line;
+   *   * sending to yourself is refused (it would be indistinguishable from a delivered line and is
+   *     always a client bug);
+   *   * flood control is its own budget (WHISPER_BURST per WHISPER_WINDOW_MS), so a busy public channel
+   *     and a private conversation cannot starve each other;
+   *
+   * @param {import('./net.js').Session} session
+   * @param {{ to?: unknown, text?: unknown }} msg
+   * @returns {{ ok: true } | { error: string, detail?: string }}
+   */
+  whisper(session, msg) {
+    if (!session) return fail(ERR.INTERNAL);
+    const text = sanitizeChat(msg && msg.text);
+    if (!text) return fail(ERR.BAD_MSG, 'empty message');
+
+    // the recipient must be a *live* session; `isId` on the wire already bounds the shape
+    const toId = typeof msg?.to === 'string' ? msg.to : '';
+    if (!toId) return fail(ERR.BAD_MSG, 'missing recipient');
+    if (toId === session.playerId) return fail(ERR.BAD_MSG, 'cannot whisper to yourself');
+    const to = this.registry.byId(toId);
+    if (!to || !to.connected) return fail(ERR.BAD_MSG, '该玩家已不在线');
+
+    const now = this.now();
+    // Anti-flood: a sliding-window burst budget. There is deliberately no per-line cooldown — a real
+    // conversation is several short lines in a few seconds, and the burst cap already bounds the rate
+    // (WHISPER_BURST per WHISPER_WINDOW_MS, ~2/s sustained).
+    const recent = (this.whisperAt.get(session.playerId) || []).filter((t) => now - t < WHISPER_WINDOW_MS);
+    if (recent.length >= WHISPER_BURST) return fail(ERR.RATE, '发得太快，稍后再试');
+    recent.push(now);
+    this.whisperAt.set(session.playerId, recent);
+
+    const line = {
+      id: `w${++this.seq}`,
+      at: now,
+      fromId: session.playerId,
+      fromName: session.name,
+      toId,
+      text,
+    };
+    // relay to the two parties only; the sender's copy marks it as outgoing client-side by fromId === me
+    sendSession(to, { t: 'hall.whisper', line });
+    sendSession(session, { t: 'hall.whisper', line });
+    return OK;
+  }
+
   // ---- events ----------------------------------------------------------------------------------
 
   /**
@@ -233,6 +287,7 @@ export class Hall {
     if (!session) return;
     this.seen.delete(session.playerId);
     this.chatAt.delete(session.playerId);
+    this.whisperAt.delete(session.playerId);
     if (this.members.delete(session.playerId)) this.scheduleRoster();
   }
 
@@ -297,5 +352,6 @@ export class Hall {
   dispose() {
     if (this.rosterTimer) { clearTimeout(this.rosterTimer); this.rosterTimer = null; }
     this.members.clear();
+    this.whisperAt.clear();
   }
 }

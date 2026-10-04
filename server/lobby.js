@@ -274,6 +274,7 @@ export class Lobby {
       case 'hall.enter': return this.hall.enter(session);
       case 'hall.leave': return this.hall.leave(session);
       case 'hall.chat': return this.hall.postChat(session, msg);
+      case 'hall.whisper': return this.hall.whisper(session, msg);
       default:
         if (typeof msg.t === 'string' && msg.t.startsWith('g.')) return this.routeGame(session, msg);
         return fail(ERR.BAD_MSG, `unhandled type ${String(msg.t).slice(0, 32)}`);

@@ -241,3 +241,18 @@ export const HALL_RESULTS_KEEP = 20;
 export const HALL_ROSTER_MAX = 60;
 /** Open rooms pushed at most (a friend server has nowhere near this many; the tail is summarized by `total`). */
 export const HALL_ROOMS_MAX = 60;
+
+// ---- Hall whisper / 私聊 -----------------------------------------------------------------------
+// One-to-one lines inside the hall. Unlike the public channel they are **never stored on the server**:
+// the server only relays a line to the two people involved and forgets it, so a restart (or the next
+// player joining) cannot reveal a private conversation. The two clients keep their own threads in
+// localStorage (public/js/ui/whispers.js).
+/** Longest private line (same bound as the public channel: short lines, no essays). */
+export const WHISPER_MAX_LEN = CHAT_MAX_LEN;
+/** How many private lines a session may send within WHISPER_WINDOW_MS before ERR.RATE (anti-flood).
+ *  Deliberately no per-line cooldown: a real conversation is several short lines in a few seconds, and
+ *  this budget alone already bounds the rate (~2/s sustained). Counted separately from the public
+ *  channel, so the two cannot starve each other. */
+export const WHISPER_BURST = 20;
+/** Window for the WHISPER_BURST budget (ms). */
+export const WHISPER_WINDOW_MS = 10_000;

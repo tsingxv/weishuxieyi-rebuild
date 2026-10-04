@@ -1,7 +1,7 @@
 // Normative message catalogue (DESIGN §8). Used by server (validation) and client (building requests).
 // Every client→server message is `{ t, rid?, ...fields }`. Unknown `t` or invalid fields ⇒ ERR.BAD_MSG.
 
-import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO, CHAT_MAX_LEN } from './constants.js';
+import { DIFFICULTIES, NAME_MAX_LEN, ROOM_CODE_LEN, MAX_SEATS, EMOTES, GEO, CHAT_MAX_LEN, WHISPER_MAX_LEN } from './constants.js';
 
 // ---- tiny validators -------------------------------------------------------
 const isInt = (v, lo = -Infinity, hi = Infinity) => Number.isInteger(v) && v >= lo && v <= hi;
@@ -247,6 +247,10 @@ export const C2S = {
   'hall.enter': {},
   'hall.leave': {},
   'hall.chat': { text: (v) => isStr(v, CHAT_MAX_LEN) && v.trim().length > 0 },
+  // 私聊: one-to-one inside the hall. `to` is the recipient's public playerId (it is already shared with
+  // everyone through the roster). The server relays the line to the sender and the recipient only and
+  // does NOT store it — see the whisper block in shared/constants.js.
+  'hall.whisper': { to: isId, text: (v) => isStr(v, WHISPER_MAX_LEN) && v.trim().length > 0 },
 
   // match
   'g.infoReady': {},
@@ -311,7 +315,10 @@ export const S2C = [
   //   chatLine    { id, at, playerId, name, text }
   // hall.roster { roster, total, rooms, roomsTotal } — presence/rooms changed (chat and results unchanged)
   // hall.chat   { line: chatLine }                   — one new chat line (broadcast to the hall)
-  'hall.state', 'hall.roster', 'hall.chat',
+  // hall.whisper { line: whisperLine }               — one private line, delivered to its two parties only:
+  //   whisperLine { id, at, fromId, fromName, toId, text }  (for the sender `fromId === my playerId`)
+  //   Never stored on the server and never replayed: a session that re-enters the hall gets nothing back.
+  'hall.state', 'hall.roster', 'hall.chat', 'hall.whisper',
   // client-side combat (DESIGN §14): b.start { battleId, fieldId, kind, spec, authoritative, startAt, serverNow, elapsed,
   // speed, watch? } · b.pool { hp, max, teamLp, acked: { [fieldId]: cumulative boss damage counted } } ·
   // b.end { battleId, fieldId, reason }

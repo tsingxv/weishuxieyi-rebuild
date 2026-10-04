@@ -258,3 +258,18 @@
   .hall-who, .hall-room, .hall-res { padding-top: .08rem; padding-bottom: .08rem; }
   .hall-res__players { display: none; }
 }
+
+/* ---- 私聊 (hall.whisper / ui/whispers.js) ----
+   The panel reuses the public channel's layout (.hall-chat__log/__form/__foot) and adds a header with
+   the peer's identity plus a tone difference: private lines are tinted instead of mint. */
+.hall-whisper__head { display: flex; align-items: center; gap: .1rem; padding: .08rem .14rem; border-bottom: 1px solid var(--line); }
+.hall-whisper__who { display: flex; flex-direction: column; gap: .02rem; min-width: 0; }
+.hall-whisper__name { font-size: .17rem; color: var(--text-hi); }
+.hall-whisper__log .hall-line.is-private { background: rgba(255, 198, 0, .045); }
+.hall-whisper__log .hall-line.is-private.is-me { background: rgba(78, 216, 175, .06); }
+.hall-whisper-hint { display: flex; align-items: center; gap: .1rem; margin-top: .06rem; flex-wrap: wrap; }
+.hall-who__talk { display: inline-flex; align-items: center; gap: .03rem; padding: .04rem .08rem; border: 1px solid var(--line-2); background: #101614; color: var(--text-lo); cursor: pointer; font-size: .13rem; }
+.hall-who__talk .icon { width: .2rem; height: .2rem; }
+.hall-who__talk:hover { border-color: var(--mint-600); color: var(--mint-400); }
+.hall-who__talk.has-unread { border-color: var(--gold); color: var(--gold); }
+.hall-who__talk.has-unread b { font-size: .12rem; }
