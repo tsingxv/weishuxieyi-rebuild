@@ -6,9 +6,9 @@
 > - 架构与协议 → [docs/DESIGN.md](docs/DESIGN.md)
 > - 版权与来源 → [NOTICE.md](NOTICE.md)、[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 >
-> **状态快照（写本文档时）**：版本 `0.2.0` · 分支 `main` · 10 个提交 · 523 个跟踪文件 ·
+> **状态快照（写本文档时）**：版本 `0.2.0` · 分支 `main` · 12 个提交 · 523 个跟踪文件 ·
 > 工作区干净 · tag `v0.2.0` 指向 HEAD · 代码已推送 GitHub。
-> **唯一未完成的动作**：v0.2.0 的 Release 附件尚未上传（原因与两种解法见 §6）。
+> **v0.2.0 三个附件已全部发布**（[Releases](https://github.com/tsingxv/weishuxieyi-rebuild/releases/tag/v0.2.0)，见 §6）。
 
 ---
 
@@ -113,35 +113,27 @@ npm start                 # 启动 → 浏览器打开 http://localhost:3000
 
 ---
 
-## 6. 当前唯一未完成的事：v0.2.0 Release 附件未上传
+## 6. v0.2.0 Release（已发布）与以后怎么发
 
-**现状**：代码与 tag 都已推送 GitHub；但 **Releases 页面上还没有 v0.2.0 的安装包**
-（v0.1.0 的三个包已发布，是更早的版本，不含大厅私聊）。
+**现状**：v0.2.0 的三个附件已于 2026-10-05 全部上传（共 1.23 GB），见
+<https://github.com/tsingxv/weishuxieyi-rebuild/releases/tag/v0.2.0>。
+tag `v0.2.0` 已前移到包含本文档的提交，Release 的 Source code 压缩包与仓库一致。
 
-**要上传的三个文件**（`dist/` 下，共 1.23 GB）：
-
-| 文件 | 大小 | 说明文案 |
+| 附件 | 大小 | 说明文案 |
 |---|---|---|
 | `Stronghold-Protocol-v0.2.0.zip` | 435 MB | 开箱即玩整合包：解压 → 装 Node.js 22+ → 双击 `scripts\start-windows.bat` |
 | `weishuxieyi-client-v0.2.0.zip` | 399 MB | 桌面客户端 exe：素材与战斗逻辑内置，剪贴板识别房间码一键进房 |
 | `weishuxieyi-server-v0.2.0.zip` | 398 MB | 独立服务器 exe：控制面板复制 IP / 邀请链接 / 防火墙命令 |
 
-**解法 A（推荐，最省事）——网页上传**：
-1. 打开 <https://github.com/tsingxv/weishuxieyi-rebuild/releases/new?tag=v0.2.0>
-2. 标题填 `v0.2.0 — 大厅 / 私聊 / 本地战绩 / 客户端与服务器 exe`
-3. 描述粘 [CHANGELOG.md](CHANGELOG.md) 里 `## [0.2.0]` 那一整段
-4. 把上面三个 zip 拖进附件区，Publish release
+Release 说明 = [CHANGELOG.md](CHANGELOG.md) 的 `## [0.2.0]` 段 + 各附件 SHA-256。
 
-**解法 B——用 API 上传**：需要一个**有 `Contents: Read and write` 的 token**。
-注意：先前试过 fine-grained token，`GET` 全部正常但 `POST /releases` 返回
-`403 Resource not accessible by personal access token`，而同一 token 发空 body 却返回 `422`（缺字段），
-即**写入被权限拦下**。改用 **classic token 勾 `repo`** 可绕开这类细粒度权限坑：
+**以后发布，上传附件两种方式**：
 
-```powershell
-# 1) https://github.com/settings/tokens/new  → 只勾 repo → 生成 ghp_...
-# 2) 用 API 建 release 并上传附件（本机已确认 api.github.com 可达）
-#    注意本机 Node 需要 CA 证书，见 §7
-```
+- **网页（最省事）**：<https://github.com/tsingxv/weishuxieyi-rebuild/releases/new?tag=vx.y.z>
+  → 标题与描述（描述可抄 CHANGELOG 对应版本段）→ 拖 zip 进附件区 → Publish release。
+- **API**：本机 git 凭据管理器里的 token 可直接建 release 并上传附件（v0.2.0 即如此完成）。
+  若换 fine-grained token，必须带 `Contents: Read and write`，否则 `POST /releases` 会返回
+  `403 Resource not accessible by personal access token`；classic token 勾 `repo` 亦可。
 
 ---
 
@@ -225,7 +217,7 @@ cd node_modules\electron ; node install.js ; cd ..\..
 - 分支 `main`，远程 `origin` = `git@github.com:tsingxv/weishuxieyi-rebuild.git`（SSH 地址）。
 - 提交身份是**仓库级**配置：`tsingxv <262500451+tsingxv@users.noreply.github.com>`
   （换人维护时改 `user.name` / `user.email` 再提交即可）。
-- 已存在的 tag：`v0.2.0`（指向当前 HEAD）。此前还有上游的 `v0.1.0`。
+- 已存在的 tag：`v0.2.0`（指向当前 HEAD）、`v0.1.0`（上一版 Release）。
 - 仓库不含美术/音频素材（gitignore）；整合包靠 Release 分发。
 - 发布新版本的标准动作：
   ```powershell
