@@ -4,7 +4,7 @@ This is the **single source of truth** for every implementer. Research lives in 
 
 Language: all player-facing text is **Simplified Chinese** (names/descriptions come from official data). Code, comments and identifiers are English.
 
-Versions: the first public release is **0.1.0** (`package.json`, `shared/constants.js APP_VERSION`) — the state described by this document, §20.15 included. The labels v1 / v2 / v2.1–v2.5.2 in §0, §14–§20 and in the BALANCE / SIM comparisons name the design generations and the private playtest builds that came before it; they are kept as history.
+Versions: the first public release is **0.2.0** (`package.json`, `shared/constants.js APP_VERSION`) — the state described by this document, §20.15 included. The labels v1 / v2 / v2.1–v2.5.2 in §0, §14–§20 and in the BALANCE / SIM comparisons name the design generations and the private playtest builds that came before it; they are kept as history.
 
 ---
 

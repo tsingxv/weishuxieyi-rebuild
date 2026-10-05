@@ -56,7 +56,7 @@ English summary: [below](#english).
 
 - **独立模拟**（单人）与**同盟模拟**（1–4 人**合作**，没有 PvP；空位可以加 AI 队友）。
 - 服务器是一个 Node.js 程序，**战斗在各玩家的浏览器里模拟**（和官方一样），服务器只管经济与回合，一台低功耗小主机就能开服。
-- 这是第一个公开版本（0.1.0）。仍有少数规则按推断实现，与官方不一致的地方欢迎在 Issue 里反馈。
+- 这是第一个公开版本（0.2.0）。仍有少数规则按推断实现，与官方不一致的地方欢迎在 Issue 里反馈。
 
 ## 功能一览
 
@@ -118,8 +118,8 @@ npm start          # 启动服务器：http://localhost:3000
 
 ```bash
 node scripts/build-release.mjs --zip
-# → dist/Stronghold-Protocol-v0.1.0/            （约 810 MB，13000+ 个文件）
-# → dist/Stronghold-Protocol-v0.1.0.zip         （上传到 GitHub Releases 的那一个）
+# → dist/Stronghold-Protocol-v0.2.0/            （约 810 MB，13000+ 个文件）
+# → dist/Stronghold-Protocol-v0.2.0.zip         （上传到 GitHub Releases 的那一个）
 ```
 
 脚本**不下载任何东西**，只复制本机现有内容，并在结束前自检（缺 `public/assets`、`public/vendor` 为空、`node_modules` 不完整等都会报错并返回非 0，避免发出一个跑不起来的包）。它还会写入 `START-HERE.txt`（解压后第一眼看到的说明，含 Node 安装、启动方式与版权声明）。

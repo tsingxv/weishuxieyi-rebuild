@@ -12,7 +12,7 @@
 > 关掉面板窗口就等于停止开服（要后台常驻、开机自启仍然用下面的 `install-service-windows.ps1`）。
 >
 > 你是**维护者**、要给别人一个「解压就能玩」的包时：`node scripts/build-release.mjs --zip` 会把本机
-> 已有的依赖与素材组装成 `dist/Stronghold-Protocol-v0.1.0.zip`（约 800 MB，内含 `START-HERE.txt`）。
+> 已有的依赖与素材组装成 `dist/Stronghold-Protocol-v0.2.0.zip`（约 800 MB，内含 `START-HERE.txt`）。
 > 全新 clone 因为素材与 `node_modules` 都是 git-ignored 而无法直接运行，所以这个整合包不能手工拼，
 > 也不要直接把工作目录压缩给别人。步骤与自检项见 [README 的方式三](../README.md) 与 [CLIENT.md](CLIENT.md)。
 
@@ -39,7 +39,7 @@
    ```
    装完**关闭并重新打开**终端，`node -v` 应显示 v22 或更高（winget 的 LTS 目前是 v24.x，同样可用）。没有 winget 时从 <https://nodejs.org/zh-cn/download> 和 <https://git-scm.com/download/win> 下载安装。
 2. 下载，二选一。建议放在一个固定、短、**不在 OneDrive 同步范围内**的目录，例如 `C:\Stronghold-Protocol`：
-   - **完整包（推荐）**：在仓库的 [Releases](https://github.com/tsingxv/weishuxieyi-rebuild/releases) 页面下载最新版本（当前为 v0.1.0）的完整包 zip（已含依赖、前端库和全部素材，包括官方 3D 棋盘），解压后把里面的 `Stronghold-Protocol` 文件夹放到上述位置。不需要 Git，首次启动也不用再下载素材。素材版权归上海鹰角网络 / Yostar，仅限非商业使用，见 [NOTICE.md](../NOTICE.md)。
+   - **完整包（推荐）**：在仓库的 [Releases](https://github.com/tsingxv/weishuxieyi-rebuild/releases) 页面下载最新版本（当前为 v0.2.0）的完整包 zip（已含依赖、前端库和全部素材，包括官方 3D 棋盘），解压后把里面的 `Stronghold-Protocol` 文件夹放到上述位置。不需要 Git，首次启动也不用再下载素材。素材版权归上海鹰角网络 / Yostar，仅限非商业使用，见 [NOTICE.md](../NOTICE.md)。
    - **源码**：
      ```powershell
      git clone https://github.com/tsingxv/weishuxieyi-rebuild.git C:\Stronghold-Protocol

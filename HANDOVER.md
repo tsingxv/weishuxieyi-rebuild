@@ -6,7 +6,7 @@
 > - 架构与协议 → [docs/DESIGN.md](docs/DESIGN.md)
 > - 版权与来源 → [NOTICE.md](NOTICE.md)、[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)
 >
-> **状态快照（写本文档时）**：版本 `0.2.0` · 分支 `main` · 12 个提交 · 523 个跟踪文件 ·
+> **状态快照（写本文档时）**：版本 `0.2.0` · 分支 `main` · 13 个提交 · 523 个跟踪文件 ·
 > 工作区干净 · tag `v0.2.0` 指向 HEAD · 代码已推送 GitHub。
 > **v0.2.0 三个附件已全部发布**（[Releases](https://github.com/tsingxv/weishuxieyi-rebuild/releases/tag/v0.2.0)，见 §6）。
 

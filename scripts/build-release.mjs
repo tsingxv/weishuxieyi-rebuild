@@ -19,7 +19,7 @@
 //     START-HERE.txt                       ← what to double-click
 //
 // Usage:
-//   node scripts/build-release.mjs                 # dist/Stronghold-Protocol-v0.1.0/ (+ --zip)
+//   node scripts/build-release.mjs                 # dist/Stronghold-Protocol-v0.2.0/ (+ --zip)
 //   node scripts/build-release.mjs --zip           # also write the .zip next to it
 //   node scripts/build-release.mjs --no-node-modules   # tiny bundle; the user runs `npm ci` themselves
 //   node scripts/build-release.mjs --out=D:\rel --name=Stronghold-Protocol
