@@ -270,7 +270,7 @@ console.log(`  ✓ ${path.relative(ROOT, renamed)}  (whole folder ${mb(total.byt
 console.log(`  ✓ ${path.relative(ROOT, launcher)}`);
 
 if (wantZip) {
-  const zip = path.join(outRoot, `${APP_NAME}.zip`);
+  const zip = path.join(outRoot, `${APP_NAME}-v${pkg.version}.zip`);
   if (fs.existsSync(zip)) fs.rmSync(zip);
   console.log(`  zip → ${path.relative(ROOT, zip)} (this takes a few minutes for ~600 MB)…`);
   // Same rule as build-release.mjs: Windows' own tar.exe (bsdtar) writes a real .zip; a Git-bash PATH may

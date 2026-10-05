@@ -105,7 +105,7 @@ node scripts/build-client.mjs --out=E:\sp-build                # 换输出目录
 | 选项 | 说明 |
 |---|---|
 | `--default-server=host:port` | 写进 `client/build-info.json`，第一次运行时预填并加进候选列表；不填则让玩家手输 |
-| `--zip` | 用 `tar.exe` 打 `weishuxieyi-client.zip`（约 600 MB，需要几分钟） |
+| `--zip` | 用 `tar.exe` 打 `weishuxieyi-client-v<版本>.zip`（约 600 MB，需要几分钟） |
 | `--out=<dir>` | 输出根目录，默认 `dist/`。**本机要直接把产物打到能运行的位置时用它**，例如 `--out=E:\Stronghold-Protocol-Client`（原因见 §7） |
 | `--no-clean` | 不删除已有产物目录（增量覆盖，慎用） |
 
